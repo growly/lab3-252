@@ -14,6 +14,9 @@ class FpgaInterface(
     val runnable      = Output(Bool())
     // The number of bytes of instructions that can be skipped by activating
     // this module.
+    //
+    // This doesn't always make sense. In general we should follow software
+    // convention and jump back to the return address stored in some register.
     val reach         = Output(UInt(addrWidth.W))
     // High when the backing logic has finished computation.
     val done          = Output(Bool())
@@ -51,14 +54,18 @@ class FpgaInterface(
   //printf(p"FpgaInterface with dataWidth: $dataWidth addrWidth: $addrWidth regAddrWidth: $regAddrWidth")
 
   // Hardcoded by generated FPGA accelerator.
-  val numRegisters = 5;
-  val ourPC = "h42".U;
+  val numPCs = 2
+  val ourPCs = Reg(Vec(2, UInt(addrWidth.W)))
+  ourPCs(0) := "h42".U
+  ourPCs(1) := "h24".U
+
   val ourReach = 2000;
 
   io.reach := ourReach.U;
 
   // In the FPGA logic we synthesise, every architectural register is referred
   // to by its new index. This mapping is known at synthesis.
+  val numRegisters = 5
   val archRegsRequired = Reg(Vec(numRegisters, UInt(regAddrWidth.W)))
   archRegsRequired(0) := 23.U
   archRegsRequired(1) := 0.U
@@ -70,7 +77,7 @@ class FpgaInterface(
   val state = Reg(init = sPCWait)
 
   io.done := RegInit(false.B)
-  io.runnable := io.currentPC === ourPC
+  io.runnable := io.currentPC === ourPCs(0) || io.currentPC === ourPCs(1)
   io.regCopyDone := RegInit(false.B)
 
   // TODO(aryap): We need to be careful with the contract we present to the CPU
@@ -84,7 +91,7 @@ class FpgaInterface(
     is (sStartWait) {
       when (io.start) {
         state := sRegCopy
-      } .elsewhen (io.currentPC =/= ourPC) {
+      } .elsewhen (!io.runnable) {
         state := sPCWait
       }
     }

@@ -26,9 +26,27 @@ class FpgaInterfaceUnitTester(c: FpgaInterface) extends PeekPokeTester(c) {
 
   private val fpga = c
 
+  poke(fpga.io.start, false.B)
   expect(fpga.io.reach, 2000.U)
   expect(fpga.io.done, false.B)
-  for (i <- 0 to 0x42 - 1) {
+  for (i <- 0 to 0x24 - 1) {
+    poke(fpga.io.currentPC, pc)
+    expect(fpga.io.runnable, false.B)
+    expect(fpga.io.regCopyDone, false.B)
+    expect(fpga.io.done, false.B)
+    step(1)
+    pc = pc + 1
+  }
+  poke(fpga.io.currentPC, pc)
+  poke(fpga.io.start, false.B)
+  expect(fpga.io.reach, 2000.U)
+  expect(fpga.io.regCopyDone, false.B)
+  expect(fpga.io.done, false.B)
+  expect(fpga.io.runnable, true.B)
+  step(1)
+  pc = pc + 1
+
+  for (i <- 0x25 to 0x42 - 1) {
     poke(fpga.io.currentPC, pc)
     expect(fpga.io.runnable, false.B)
     expect(fpga.io.regCopyDone, false.B)
