@@ -97,6 +97,10 @@ BMARK_OUT_FILES=$(addprefix $(output_dir)/,$(addsuffix .riscv.out,$(benchmarks))
 
 run-benchmarks: $(BMARK_OUT_FILES)
 
+EXAMPLE_FILE=$(addprefix $(output_dir)/,$(addsuffix .riscv.out,$(example)))
+
+run-example: $(EXAMPLE_FILE)
+
 benchmark-stats: $(base_dir)/bmark-stats.sh $(BMARK_OUT_FILES)
 	$< $(BMARK_OUT_FILES)
 
