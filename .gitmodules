@@ -4,6 +4,3 @@
 [submodule "testchipip"]
 	path = testchipip
 	url = https://github.com/ucb-bar/testchipip.git
-[submodule "boom"]
-	path = boom
-	url = https://github.com/ucb-bar/riscv-boom.git
