@@ -407,6 +407,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
       // stall this instruction?
       // TODO tailor this to only care if a given instruction uses a resource?
+      // TODO(aryap): Looks like we need a thing here... probably related to ~(rob.io.empty)
       val stall_me = (dec_valids(w) &&
                         (  !(rename_stage.io.inst_can_proceed(w))
                         || (dec_valids(w) && dec_uops(w).is_unique &&
@@ -609,6 +610,10 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    //-------------------------------------------------------------
    //-------------------------------------------------------------
 
+   // TODO(aryap): Scala learning: this applies a function to every element of
+   // issue_units and .sum sums the result, as you might expect. _.issue_width
+   // I think is calling the .issue_width member of each element of
+   // issue_units, passed in as _ (like python's "don't care" arg name)
    require (issue_units.map(_.issue_width).sum == exe_units.length)
 
    // Input (Dispatch)
@@ -789,6 +794,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // **** Load/Store Unit ****
    //-------------------------------------------------------------
    //-------------------------------------------------------------
+
+   // TODO(aryap): FPGA interface also needs access to the lsu queues here.
 
    // enqueue basic load/store info in Decode
    lsu.io.dec_uops := dec_uops
@@ -1054,6 +1061,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    //-------------------------------------------------------------
    // flush on exceptions, miniexeptions, and after some special instructions
 
+   // TODO(aryap): On detecting an FPGA match, we have to do this flushing, but
+   // without triggering an exception.
    fp_pipeline.io.flush_pipeline := rob.io.flush.valid
    for (w <- 0 until exe_units.length)
    {
