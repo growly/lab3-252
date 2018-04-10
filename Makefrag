@@ -78,6 +78,9 @@ benchmarks = \
 	towers \
 	vvadd \
 
+example = \
+  simple \
+
 output_dir=$(sim_dir)/output
 
 $(output_dir)/%: $(RISCV)/riscv64-unknown-elf/share/riscv-tests/isa/%

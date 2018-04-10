@@ -28,6 +28,7 @@ bmarks = \
 	dhrystone \
 	lsu_forwarding \
 	lsu_failures \
+  simple \
 
 #--------------------------------------------------------------------
 # Build rules
