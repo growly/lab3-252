@@ -119,6 +119,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // Used to wakeup registers in rename and issue. ROB needs to listen to something else.
    val int_wakeups      = Wire(Vec(num_wakeup_ports, Valid(new ExeUnitResp(xLen))))
 
+   val fpga = Module(new FpgaInterface())
+
    require (exe_units.length == issue_units.map(_.issue_width).sum)
 
    //***********************************
@@ -312,6 +314,19 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // Delay sfence to match pushing the sfence.addr into the TLB's CAM port.
    io.imem.sfence := RegNext(lsu.io.exe_resp.bits.sfence)
 
+
+   //-------------------------------------------------------------
+   //-------------------------------------------------------------
+   // **** FPGA ****
+   //-------------------------------------------------------------
+   //-------------------------------------------------------------
+
+   // Pass PC value to the FPGA interface
+   // TODO: How to handle two following cases:
+   // (1) FPGA and BOOM have different clock domain
+   // (2) PC is a virtual memory address
+   fpga.io.currentPC := io.imem.resp.bits.pc
+
    //-------------------------------------------------------------
    //-------------------------------------------------------------
    // **** Branch Prediction ****
@@ -406,7 +421,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
                         || !bpd_stage.io.brob.allocate.ready
                         || (dec_valids(w) && dec_uops(w).is_fencei && !lsu.io.lsu_fencei_rdy)
                         )) ||
-                     dec_last_inst_was_stalled
+                     dec_last_inst_was_stalled || fpga.io.runnable
 
       // stall the next instruction following me in the decode bundle?
       dec_last_inst_was_stalled = stall_me
