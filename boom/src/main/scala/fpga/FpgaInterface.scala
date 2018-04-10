@@ -43,9 +43,9 @@ class FpgaInterface(
 
    io.runnable := runnable_reg
 
-   // PC value of the jump_to_kernel instruction: 0x0080001b68
+   // PC value of the jump_to_kernel instruction: 0x0080001bb8
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
-   when (io.currentPC(15, 0) === UInt(0x1b68)) {
+   when (io.currentPC(15, 0) === UInt(0x1bb8)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
    }
