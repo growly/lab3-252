@@ -326,6 +326,12 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // (1) FPGA and BOOM have different clock domain
    // (2) PC is a virtual memory address
    fpga.io.currentPC := io.imem.resp.bits.pc
+   fetch_unit.io.fpga_runnable := fpga.io.runnable
+   fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
+   fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
+
+   fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
+   fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
@@ -422,7 +428,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
                         || !bpd_stage.io.brob.allocate.ready
                         || (dec_valids(w) && dec_uops(w).is_fencei && !lsu.io.lsu_fencei_rdy)
                         )) ||
-                     dec_last_inst_was_stalled || fpga.io.runnable
+                     dec_last_inst_was_stalled //|| fpga.io.runnable
+
+      printf("[DECODER] width %d stall_me %d\n", UInt(w), stall_me)
 
       // stall the next instruction following me in the decode bundle?
       dec_last_inst_was_stalled = stall_me
@@ -774,6 +782,19 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
       }
 
    }
+
+   printf("*** TEST REGISTERFILE READ ***\n")
+   for (w <- 0 until exe_units.length) {
+     printf("issue %d data 0x%x 0x%x\n", UInt(w),
+       iregister_read.io.exe_reqs(w).bits.rs1_data,
+       iregister_read.io.exe_reqs(w).bits.rs2_data)
+   }
+
+   for (p <- 0 until exe_units.num_rf_read_ports) {
+     printf("iregister_read port %d address %d, data 0x%x\n",
+       UInt(p), iregister_read.io.rf_read_ports(p).addr,
+       iregister_read.io.rf_read_ports(p).data)
+   }
    require (idx == exe_units.num_total_bypass_ports)
 
 
@@ -971,6 +992,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             // for commit logging... (only integer writes come through here)
             rob.io.debug_wb_valids(cnt) := resp.valid && wb_uop.ctrl.rf_wen && wb_uop.dst_rtype === RT_FIX
             data = resp.bits.data
+            printf("%d %d committed valid %d, data 0x%x\n", UInt(j), UInt(cnt),
+              rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data)
          }
 
          if (eu.hasFFlags || (eu.is_mem_unit && usingFPU))

@@ -76,6 +76,10 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
 
       val resp              = new DecoupledIO(new FetchBundle)
       val stalled           = Bool(OUTPUT) // CODE REVIEW
+
+      val fpga_runnable     = Bool(INPUT)
+      val fetch_from_fpga_valid = Bool(INPUT)
+      val fetch_from_fpga_inst  = UInt(INPUT, 32)
    })
 
    val bchecker = Module (new BranchChecker(fetchWidth))
@@ -116,9 +120,9 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** NextPC Select (F0) ****
    //-------------------------------------------------------------
 
-   val if_stalled = !(FetchBuffer.io.enq.ready) // if FetchBuffer backs up, we have to stall the front-end
+   val if_stalled = io.fpga_runnable | !(FetchBuffer.io.enq.ready) // if FetchBuffer backs up, we have to stall the front-end
    io.stalled := if_stalled
-
+   printf("FETCH stall? %d\n", io.stalled)
 
    val f0_redirect_val =
       br_unit.take_pc ||
@@ -433,10 +437,19 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** FetchBuffer Enqueue ****
    //-------------------------------------------------------------
 
-   // Fetch Buffer
-   FetchBuffer.io.enq.valid := f3_valid
-   FetchBuffer.io.enq.bits  := f3_fetch_bundle
+   val fetch_bundle_from_fpga = Wire(new FetchBundle)
+   fetch_bundle_from_fpga.pc := UInt(0) // dummy PC value
+   fetch_bundle_from_fpga.insts(0) := io.fetch_from_fpga_inst
+   fetch_bundle_from_fpga.mask := Bits(1)
 
+   // Fetch Buffer
+   when (io.fpga_runnable) {
+     FetchBuffer.io.enq.valid := io.fetch_from_fpga_valid
+     FetchBuffer.io.enq.bits := fetch_bundle_from_fpga
+   } .otherwise {
+     FetchBuffer.io.enq.valid := f3_valid
+     FetchBuffer.io.enq.bits  := f3_fetch_bundle
+   }
 
    for (i <- 0 until fetch_width)
    {
@@ -510,7 +523,8 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    when (FetchBuffer.io.enq.fire() &&
       !f3_fetch_bundle.replay_if &&
       !f3_fetch_bundle.xcpt_pf_if &&
-      !f3_fetch_bundle.xcpt_ae_if)
+      !f3_fetch_bundle.xcpt_ae_if &&
+      !io.fpga_runnable)
    {
       assert (f3_fetch_bundle.mask =/= 0.U)
       val curr_inst = if (fetchWidth == 0) f3_fetch_bundle.insts(0) else f3_fetch_bundle.insts(cfi_idx)
@@ -636,6 +650,9 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
          , UInt(0) //io.bp2_pred_resp.mask
          , FetchBuffer.io.enq.bits.mask
          )
+
+
+     printf("FetchBuffer inst: 0x%x\n", FetchBuffer.io.enq.bits.insts(0))
    }
 }
 
