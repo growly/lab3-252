@@ -1,7 +1,6 @@
 package boom
 
-import chisel3._
-import chisel3.util._
+import Chisel._
 
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
@@ -15,19 +14,20 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
     // High when this interface can replace an instruction sequence starting
     // at the given PC.
-    val runnable      = Bool(OUTPUT)
+    val runnable       = Bool(OUTPUT)
 
-    val fetch_inst    = UInt(OUTPUT, xLen)
-    val fetch_valid   = Bool(OUTPUT)
+    val fetch_inst     = UInt(OUTPUT, xLen)
+    val fetch_valid    = Bool(OUTPUT)
 
-    val rob_valid     = Bool(INPUT)
-    val rob_data      = UInt(INPUT, xLen)
+    val rob_valid      = Bool(INPUT)
+    val rob_data       = UInt(INPUT, xLen)
 
-    val memreq_valid  = Bool(OUTPUT)
-    val memreq_addr   = UInt(OUTPUT, vaddrBitsExtended)
+    val memreq_valid   = Bool(OUTPUT)
+    val memreq_addr    = UInt(OUTPUT, vaddrBitsExtended)
+    val memreq_is_write = Bool(OUTPUT)
 
-    val memresp_valid = Bool(INPUT)
-    val memresp_data  = UInt(INPUT, xLen)
+    val memresp_valid  = Bool(INPUT)
+    val memresp_data   = UInt(INPUT, xLen)
 
     // The number of bytes of instructions that can be skipped by activating
     // this module.
@@ -68,12 +68,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val cnt1 = RegInit(0.U(32.W)) // count commit
    val memreq_valid_reg = RegInit(false.B)
    val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
+   val memreq_is_write_reg = RegInit(false.B)
 
    io.runnable := runnable_reg
    io.fetch_inst := fetch_inst_reg
    io.fetch_valid := fetch_valid_reg
    io.memreq_valid := memreq_valid_reg
    io.memreq_addr := memreq_addr_reg
+   io.memreq_is_write := memreq_is_write_reg
 
    // PC value of the jump_to_kernel instruction: 0x0080001c04
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -126,9 +128,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    when (stallCnt === 70.U) {
      memreq_valid_reg := true.B
      memreq_addr_reg := test2
+     memreq_is_write_reg := false.B
    } .elsewhen (stallCnt === 71.U) {
      memreq_valid_reg := false.B
      memreq_addr_reg := 0.U
+     memreq_is_write_reg := false.B
    }
 
    // stall for 100 cycles

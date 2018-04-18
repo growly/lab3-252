@@ -546,10 +546,12 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.valid := io.fpga_memreq_valid | maddrcalc.io.resp.valid
    io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid, io.fpga_exe_resp.addr,
                                     maddrcalc.io.resp.bits.addr)
-   io.lsu_io.exe_resp.bits.uop.is_load := io.fpga_memreq_valid |
-                                    maddrcalc.io.resp.bits.uop.is_load
-   io.lsu_io.exe_resp.bits.uop.ctrl.is_load := io.fpga_memreq_valid |
-                                    maddrcalc.io.resp.bits.uop.ctrl.is_load
+   io.lsu_io.exe_resp.bits.uop.is_load := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.uop.is_load,
+                                    maddrcalc.io.resp.bits.uop.is_load)
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_load := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.uop.ctrl.is_load,
+                                    maddrcalc.io.resp.bits.uop.ctrl.is_load)
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
