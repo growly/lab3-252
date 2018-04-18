@@ -7,22 +7,27 @@ import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
 
-class FpgaInterface(
-  dataWidth: Int = 32,
-  addrWidth: Int = 32,
-  regAddrWidth: Int = 5) (implicit p: Parameters) extends Module() {
-  val io = IO(new CoreBundle()(p) {
-    val currentPC     = Input(UInt(vaddrBitsExtended.W))
+class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
+  with HasBoomCoreParameters {
+
+  val io = IO(new BoomBundle()(p) {
+    val currentPC     = UInt(INPUT, vaddrBitsExtended)
 
     // High when this interface can replace an instruction sequence starting
     // at the given PC.
-    val runnable      = Output(Bool())
+    val runnable      = Bool(OUTPUT)
 
-    val fetch_inst  = Output(UInt(dataWidth.W))
-    val fetch_valid = Output(Bool())
+    val fetch_inst    = UInt(OUTPUT, xLen)
+    val fetch_valid   = Bool(OUTPUT)
 
-    val rob_valid     = Input(Bool())
-    val rob_data      = Input(UInt(dataWidth.W))
+    val rob_valid     = Bool(INPUT)
+    val rob_data      = UInt(INPUT, xLen)
+
+    val memreq_valid  = Bool(OUTPUT)
+    val memreq_addr   = UInt(OUTPUT, vaddrBitsExtended)
+
+    val memresp_valid = Bool(INPUT)
+    val memresp_data  = UInt(INPUT, xLen)
 
     // The number of bytes of instructions that can be skipped by activating
     // this module.
@@ -36,11 +41,11 @@ class FpgaInterface(
 
     // Register copy interface.
     //val archRegAddr   = Output(UInt(regAddrWidth.W))
-    //val regData       = Input(UInt(dataWidth.W))
+    //val regData       = Input(UInt(xLen.W))
     //val regCopyDone   = Output(Bool())
 
     // This is just for temp debugging.
-    //val result        = Output(UInt(dataWidth.W))
+    //val result        = Output(UInt(xLen.W))
 
   })
 
@@ -54,17 +59,21 @@ class FpgaInterface(
 
    val stallCnt = RegInit(0.U(32.W))
    val runnable_reg = RegInit(false.B)
-   val fetch_inst_reg = RegInit(0.U(32.W))
+   val fetch_inst_reg = RegInit(0.U(xLen.W))
    val fetch_valid_reg = RegInit(false.B)
    val fetch_start = RegInit(false.B)
    val fetch_done = RegInit(false.B)
    val sum = RegInit(0.U(32.W))
    val cnt0 = RegInit(0.U(32.W)) // count fetch
    val cnt1 = RegInit(0.U(32.W)) // count commit
+   val memreq_valid_reg = RegInit(false.B)
+   val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
 
    io.runnable := runnable_reg
    io.fetch_inst := fetch_inst_reg
    io.fetch_valid := fetch_valid_reg
+   io.memreq_valid := memreq_valid_reg
+   io.memreq_addr := memreq_addr_reg
 
    // PC value of the jump_to_kernel instruction: 0x0080001c04
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -77,8 +86,8 @@ class FpgaInterface(
      stallCnt := stallCnt + 1.U
    }
 
-   // Send instruction to BOOM at cycle 40
-   when (stallCnt === 40.U) {
+   // Send instruction to BOOM at cycle 30
+   when (stallCnt === 30.U) {
      fetch_start := true.B
    }
 
@@ -107,20 +116,41 @@ class FpgaInterface(
      cnt1 := UInt(0)
    }
 
+   // 0x8001fe28 exceeds UInt size ... have to break it down as follows
+   val test1 = Reg(UInt(vaddrBitsExtended.W))
+   val test2 = Reg(UInt(vaddrBitsExtended.W))
+   test1 := 0x8.U << 28
+   test2 := test1 + 0x1fe28.U
+
+   // Send memory load request at cycle 70
+   when (stallCnt === 70.U) {
+     memreq_valid_reg := true.B
+     memreq_addr_reg := test2
+   } .elsewhen (stallCnt === 71.U) {
+     memreq_valid_reg := false.B
+     memreq_addr_reg := 0.U
+   }
+
    // stall for 100 cycles
    when (stallCnt === 100.U) {
      stallCnt := 0.U
      runnable_reg := false.B
    }
 
-   printf("""test... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
+   printf("\n")
+   printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
            fetch_start: %d, fetch_done: %d,
-           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d\n""",
+           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d,
+           memreq_valid: %d, memreq_addr: 0x%x,
+           memresp_valid: %d, memresp_data: 0x%x""",
      io.runnable, stallCnt, cnt0, cnt1,
      fetch_start, fetch_done,
-     io.rob_valid, io.rob_data, io.currentPC, sum)
+     io.rob_valid, io.rob_data, io.currentPC, sum,
+     io.memreq_valid, io.memreq_addr,
+     io.memresp_valid, io.memresp_data)
+   printf("\n")
 
-//  //printf(p"FpgaInterface with dataWidth: $dataWidth addrWidth: $addrWidth regAddrWidth: $regAddrWidth")
+//  //printf(p"FpgaInterface with xLen: $xLen addrWidth: $addrWidth regAddrWidth: $regAddrWidth")
 //
 //  // Hardcoded by generated FPGA accelerator.
 //  val numRegisters = 5;
@@ -184,7 +214,7 @@ class FpgaInterface(
 //  // physical register address from the Register Renaming table to the Regfile
 //  // for us, and read out the value. Maybe we should just put it in this
 //  // interface to minimise changes to the BOOM?
-//  val registers = Reg(Vec(numRegisters, UInt(dataWidth.W)))
+//  val registers = Reg(Vec(numRegisters, UInt(xLen.W)))
 //
 //  io.archRegAddr := RegInit(0.U)
 //  when (state === sRegCopy && regIndex < numRegisters.U) {

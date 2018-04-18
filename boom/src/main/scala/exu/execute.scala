@@ -68,6 +68,9 @@ class ExecutionUnitIO(num_rf_read_ports: Int
    val lsu_io = new LoadStoreUnitIO(DECODE_WIDTH).flip
    val dmem   = new DCMemPortIO() // TODO move this out of ExecutionUnit
    val com_exception = Bool(INPUT)
+
+   val fpga_memreq_valid = Bool(INPUT)
+   val fpga_exe_resp = (new FuncUnitResp(xLen)).flip()
 }
 
 abstract class ExecutionUnit(val num_rf_read_ports: Int
@@ -540,7 +543,13 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
 
    // enqueue addresses,st-data at the end of Execute
    io.lsu_io.exe_resp <> maddrcalc.io.resp
-
+   io.lsu_io.exe_resp.valid := io.fpga_memreq_valid | maddrcalc.io.resp.valid
+   io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid, io.fpga_exe_resp.addr,
+                                    maddrcalc.io.resp.bits.addr)
+   io.lsu_io.exe_resp.bits.uop.is_load := io.fpga_memreq_valid |
+                                    maddrcalc.io.resp.bits.uop.is_load
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_load := io.fpga_memreq_valid |
+                                    maddrcalc.io.resp.bits.uop.ctrl.is_load
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
@@ -573,6 +582,20 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.resp(0).bits.uop := memresp_uop
    io.resp(0).bits.uop.ctrl.rf_wen := memresp_rf_wen
    io.resp(0).bits.data := memresp_data
+
+   printf("\n")
+   printf("""MemExeUnit fpga_memreq_valid=%d, io.lsu_io.exe_resp.bits.addr=0x%x,
+                     io.lsu_io.memreq_addr=0x%x, io.lsu_io.memreq_val=%d,
+                     io.com_exception=%d, io.lsu_io.memreq_uop.is_load=%d,
+                     io.dmem.req.valid=%d, io.lsu_io.memresp.valid=%d,
+                     io.dmem.req.bits.addr=0x%x, io.dmem.req.bits.kill=%d,
+                     io.dmem.resp.valid=%d, memresp_val=%d, memresp_data=0x%x""",
+     io.fpga_memreq_valid, io.lsu_io.exe_resp.bits.addr, io.lsu_io.memreq_addr,
+     io.lsu_io.memreq_val, io.com_exception, io.lsu_io.memreq_uop.is_load,
+     io.dmem.req.valid, io.lsu_io.memresp.valid,
+     io.dmem.req.bits.addr, io.dmem.req.bits.kill,
+     io.dmem.resp.valid, memresp_val, memresp_data)
+   printf("\n")
 }
 
 

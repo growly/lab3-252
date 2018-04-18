@@ -135,6 +135,8 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    val debug_tsc = UInt(INPUT, xLen)     // time stamp counter
 
    override def cloneType: this.type = new LoadStoreUnitIO(pl_width)(p).asInstanceOf[this.type]
+
+   val fpga_memreq_valid     = Bool(INPUT)
 }
 
 
@@ -225,7 +227,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
    for (w <- 0 until pl_width)
    {
-      when (io.dec_ld_vals(w))
+      when (io.dec_ld_vals(w) || io.fpga_memreq_valid)
       {
          // TODO is it better to read out ld_idx?
          // val ld_enq_idx = io.dec_uops(w).ldq_idx
@@ -242,7 +244,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
          assert (ld_enq_idx === io.dec_uops(w).ldq_idx, "[lsu] mismatch enq load tag.")
       }
-      ld_enq_idx = Mux(io.dec_ld_vals(w), WrapInc(ld_enq_idx, num_ld_entries),
+      ld_enq_idx = Mux(io.dec_ld_vals(w) || io.fpga_memreq_valid, WrapInc(ld_enq_idx, num_ld_entries),
                                           ld_enq_idx)
 
       when (io.dec_st_vals(w))
@@ -853,7 +855,9 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    //------------------------
    // Handle Memory Responses
    //------------------------
-
+   printf("LSU io.memresp.valid=%d io.memresp.bits.is_load=%d, will_fire_load_incoming=%d, io.exe_resp.valid=%d, io.memresp.bits.ctrl.is_load=%d\n",
+     io.memresp.valid, io.memresp.bits.is_load, will_fire_load_incoming,
+     io.exe_resp.valid, io.exe_resp.bits.uop.ctrl.is_load)
    when (io.memresp.valid)
    {
       when (io.memresp.bits.is_load)
@@ -1321,6 +1325,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
    if (DEBUG_PRINTF_LSU)
    {
+      printf("tlb miss %d\n", tlb_miss)
       printf("wakeup_idx: %d, ld is head of ROB:%d\n", exe_ld_idx_wakeup, io.commit_load_at_rob_head)
       for (i <- 0 until NUM_LSU_ENTRIES)
       {

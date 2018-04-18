@@ -152,7 +152,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    dc_shim.io.core <> exe_units.memory_unit.io.dmem
    dc_shim.io.core.invalidate_lr := rob.io.com_xcpt.valid
 
-   // Load/Store Unit & ExeUnits
    exe_units.memory_unit.io.lsu_io := lsu.io
 
 
@@ -332,6 +331,13 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
+
+   lsu.io.fpga_memreq_valid := fpga.io.memreq_valid
+   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq_valid
+   exe_units.memory_unit.io.fpga_exe_resp.addr := fpga.io.memreq_addr
+
+   fpga.io.memresp_valid := exe_units.memory_unit.io.resp(0).valid
+   fpga.io.memresp_data := exe_units.memory_unit.io.resp(0).bits.data
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
@@ -938,6 +944,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    require (mem_unit.num_rf_write_ports == 1)
    val mem_resp = mem_unit.io.resp(0)
 
+   // TAN: this is HIGH only when there is a writeback to RF
    ll_wbarb.io.in(0).valid := mem_resp.valid && mem_resp.bits.uop.ctrl.rf_wen && mem_resp.bits.uop.dst_rtype === RT_FIX
    ll_wbarb.io.in(0).bits  := mem_resp.bits
 
@@ -983,6 +990,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             // for commit logging... (only integer writes come through here)
             rob.io.debug_wb_valids(cnt) := ll_wbarb.io.out.valid && ll_uop.ctrl.rf_wen && ll_uop.dst_rtype === RT_FIX
             data = ll_wbarb.io.out.bits.data
+            printf("%d %d mem committed valid %d, data 0x%x, ll_warb_out_valid=%d\n", UInt(j), UInt(cnt),
+              rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data, ll_wbarb.io.out.valid)
          }
          else
          {
@@ -992,7 +1001,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             // for commit logging... (only integer writes come through here)
             rob.io.debug_wb_valids(cnt) := resp.valid && wb_uop.ctrl.rf_wen && wb_uop.dst_rtype === RT_FIX
             data = resp.bits.data
-            printf("%d %d committed valid %d, data 0x%x\n", UInt(j), UInt(cnt),
+            printf("%d %d integer committed valid %d, data 0x%x\n", UInt(j), UInt(cnt),
               rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data)
          }
 

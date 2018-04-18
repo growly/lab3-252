@@ -305,6 +305,26 @@ class DCacheShim(implicit p: Parameters) extends BoomModule()(p)
                          Mux(was_store_and_not_amo && !io.dmem.s2_nack && !Reg(next=io.core.req.bits.kill),
                            Bool(true),    // stores succeed quietly, so valid if no nack
                            Bool(false)))  // filter out nacked responses
+   printf("\n")
+   printf("""DCache SHIM io.core.resp.valid=%d, cache_load_ack=%d,
+           inflight_load=%d, resp_tag=%d, was_store=%d, dmem_s2_nack=%d,
+           enq_val=%d, enq_rdy=%d, io.core.req.valid=%d, io.core.req.bits.uop.is_load=%d,
+           io.dmem.req.ready=%d""",
+     io.core.resp.valid, cache_load_ack, !inflight_load_buffer(resp_tag).was_killed,
+     resp_tag,
+     was_store_and_not_amo, io.dmem.s2_nack,
+     enq_val, enq_rdy,
+     io.core.req.valid, io.core.req.bits.uop.is_load,
+     io.dmem.req.ready)
+   printf("\n")
+
+   for (i <- 0 until max_num_inflight)
+   {
+     printf("Inflight load buffer %d valid=%d, wen=%d, clear=%d, flush_pipe=%d, was_kill=%d\n",
+       UInt(i), inflight_load_buffer(i).valid, inflight_load_buffer(i).wen,
+       inflight_load_buffer(i).clear, inflight_load_buffer(i).flush_pipe,
+       inflight_load_buffer(i).was_killed)
+   }
 
    val m2_req_valid = was_store_and_not_amo && !io.dmem.s2_nack && !RegNext(io.core.req.bits.kill)
    io.core.resp.bits.uop := Mux(m2_req_valid, m2_req_uop, inflight_load_buffer(resp_tag).out_uop)
