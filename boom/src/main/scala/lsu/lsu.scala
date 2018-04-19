@@ -139,6 +139,7 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    val fpga_memreq_valid     = Bool(INPUT)
    val fpga_memreq_is_load   = Bool(INPUT)
    val fpga_memreq_is_store  = Bool(INPUT)
+   val fpga_runnable         = Bool(INPUT)
 }
 
 
@@ -1186,12 +1187,12 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       }
    }
 
-
    var temp_laq_head = laq_head
    for (w <- 0 until pl_width)
    {
       val idx = temp_laq_head
-      when (io.commit_load_mask(w))
+      val fpga_load_commit = io.fpga_runnable & laq_succeeded(idx)
+      when (io.commit_load_mask(w) || fpga_load_commit)
       {
          assert (laq_allocated(idx), "[lsu] trying to commit an un-allocated load entry.")
          assert (laq_executed(idx), "[lsu] trying to commit an un-executed load entry.")
@@ -1205,7 +1206,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          laq_forwarded_std_val(idx) := Bool(false)
       }
 
-      temp_laq_head = Mux(io.commit_load_mask(w), WrapInc(temp_laq_head, num_ld_entries), temp_laq_head)
+      temp_laq_head = Mux(io.commit_load_mask(w) || fpga_load_commit, WrapInc(temp_laq_head, num_ld_entries), temp_laq_head)
    }
    laq_head := temp_laq_head
 

@@ -154,7 +154,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    }
 
    // Stop after 10 memory store requests
-   when (memreq_store_cnt === 10.U) {
+   when (memreq_store_cnt === 10.U && !io.stq_full) {
      start_memreq_store := false.B
      memreq_store_cnt := 0.U
      memreq_valid_reg := false.B
@@ -162,9 +162,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_is_store_reg := false.B
    }
 
-   // Send memory load request at cycle 70
+   // Send memory load request at cycle 80
    // Expect to receive the value just stored
-   when (stallCnt === 70.U) {
+   when (stallCnt === 80.U) {
      start_memreq_load := true.B
    }
 
@@ -175,7 +175,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_load_cnt := memreq_load_cnt + 1.U
    }
 
-   when (memreq_load_cnt === 10.U) {
+   when (memreq_load_cnt === 10.U && !io.laq_full) {
      start_memreq_load := false.B
      memreq_load_cnt := 0.U
      memreq_valid_reg := false.B
@@ -183,8 +183,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_is_load_reg := false.B
    }
 
-   // stall for 100 cycles
-   when (stallCnt === 100.U) {
+   // stall for 150 cycles
+   when (stallCnt === 150.U) {
      stallCnt := 0.U
      runnable_reg := false.B
    }

@@ -337,6 +337,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    lsu.io.fpga_memreq_is_store := fpga.io.memreq_is_store
    fpga.io.laq_full := lsu.io.laq_full
    fpga.io.stq_full := lsu.io.stq_full
+   lsu.io.fpga_runnable := fpga.io.runnable
 
    exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq_valid
 
