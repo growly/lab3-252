@@ -333,10 +333,21 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
 
    lsu.io.fpga_memreq_valid := fpga.io.memreq_valid
+   lsu.io.fpga_memreq_is_load := fpga.io.memreq_is_load
+   lsu.io.fpga_memreq_is_store := fpga.io.memreq_is_store
+
    exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq_valid
+
    exe_units.memory_unit.io.fpga_exe_resp.addr := fpga.io.memreq_addr
-   exe_units.memory_unit.io.fpga_exe_resp.uop.is_load := !fpga.io.memreq_is_write
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := !fpga.io.memreq_is_write
+
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_load := fpga.io.memreq_is_load
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq_is_load
+
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq_is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq_is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq_is_store
+
+   exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq_data
 
    fpga.io.memresp_valid := exe_units.memory_unit.io.resp(0).valid
    fpga.io.memresp_data := exe_units.memory_unit.io.resp(0).bits.data

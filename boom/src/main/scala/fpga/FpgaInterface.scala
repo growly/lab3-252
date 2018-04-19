@@ -14,20 +14,23 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
     // High when this interface can replace an instruction sequence starting
     // at the given PC.
-    val runnable       = Bool(OUTPUT)
+    val runnable        = Bool(OUTPUT)
 
-    val fetch_inst     = UInt(OUTPUT, xLen)
-    val fetch_valid    = Bool(OUTPUT)
+    val fetch_inst      = UInt(OUTPUT, xLen)
+    val fetch_valid     = Bool(OUTPUT)
 
-    val rob_valid      = Bool(INPUT)
-    val rob_data       = UInt(INPUT, xLen)
+    val rob_valid       = Bool(INPUT)
+    val rob_data        = UInt(INPUT, xLen)
 
-    val memreq_valid   = Bool(OUTPUT)
-    val memreq_addr    = UInt(OUTPUT, vaddrBitsExtended)
-    val memreq_is_write = Bool(OUTPUT)
+    val memreq_valid    = Bool(OUTPUT)
+    val memreq_addr     = UInt(OUTPUT, vaddrBitsExtended)
+    val memreq_is_load  = Bool(OUTPUT)
+    val memreq_is_store = Bool(OUTPUT)
 
-    val memresp_valid  = Bool(INPUT)
-    val memresp_data   = UInt(INPUT, xLen)
+    val memreq_data     = UInt(OUTPUT, xLen)
+
+    val memresp_valid   = Bool(INPUT)
+    val memresp_data    = UInt(INPUT, xLen)
 
     // The number of bytes of instructions that can be skipped by activating
     // this module.
@@ -68,14 +71,18 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val cnt1 = RegInit(0.U(32.W)) // count commit
    val memreq_valid_reg = RegInit(false.B)
    val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
-   val memreq_is_write_reg = RegInit(false.B)
+   val memreq_is_load_reg = RegInit(false.B)
+   val memreq_is_store_reg = RegInit(false.B)
+   val memreq_data_reg = RegInit(0x1234.U(xLen.W))
 
    io.runnable := runnable_reg
    io.fetch_inst := fetch_inst_reg
    io.fetch_valid := fetch_valid_reg
    io.memreq_valid := memreq_valid_reg
    io.memreq_addr := memreq_addr_reg
-   io.memreq_is_write := memreq_is_write_reg
+   io.memreq_is_load := memreq_is_load_reg
+   io.memreq_is_store := memreq_is_store_reg
+   io.memreq_data := memreq_data_reg
 
    // PC value of the jump_to_kernel instruction: 0x0080001c04
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -128,11 +135,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    when (stallCnt === 70.U) {
      memreq_valid_reg := true.B
      memreq_addr_reg := test2
-     memreq_is_write_reg := false.B
+     memreq_is_store_reg := true.B
    } .elsewhen (stallCnt === 71.U) {
      memreq_valid_reg := false.B
      memreq_addr_reg := 0.U
-     memreq_is_write_reg := false.B
+     memreq_is_store_reg := false.B
    }
 
    // stall for 100 cycles
@@ -145,11 +152,13 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
            fetch_start: %d, fetch_done: %d,
            rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d,
+           is_load: %d, is_store: %d,
            memreq_valid: %d, memreq_addr: 0x%x,
            memresp_valid: %d, memresp_data: 0x%x""",
      io.runnable, stallCnt, cnt0, cnt1,
      fetch_start, fetch_done,
      io.rob_valid, io.rob_data, io.currentPC, sum,
+     io.memreq_is_load, io.memreq_is_store,
      io.memreq_valid, io.memreq_addr,
      io.memresp_valid, io.memresp_data)
    printf("\n")

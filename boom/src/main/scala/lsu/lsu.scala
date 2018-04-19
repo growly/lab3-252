@@ -137,6 +137,8 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    override def cloneType: this.type = new LoadStoreUnitIO(pl_width)(p).asInstanceOf[this.type]
 
    val fpga_memreq_valid     = Bool(INPUT)
+   val fpga_memreq_is_load   = Bool(INPUT)
+   val fpga_memreq_is_store  = Bool(INPUT)
 }
 
 
@@ -225,9 +227,32 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    var ld_enq_idx = laq_tail
    var st_enq_idx = stq_tail
 
+   val fpga_load = Wire(init = Bool(false))
+   val fpga_store = Wire(init = Bool(false))
+   fpga_load := io.fpga_memreq_valid & io.fpga_memreq_is_load
+   fpga_store := io.fpga_memreq_valid & io.fpga_memreq_is_store
+
    for (w <- 0 until pl_width)
    {
-      when (io.dec_ld_vals(w) || io.fpga_memreq_valid)
+      when (fpga_load)
+      {
+         // TODO is it better to read out ld_idx?
+         // val ld_enq_idx = io.dec_uops(w).ldq_idx
+         laq_uop(ld_enq_idx).is_load  := Bool(true)
+         laq_uop(ld_enq_idx).is_store := Bool(false)
+
+         laq_st_dep_mask(ld_enq_idx)  := next_live_store_mask
+         laq_allocated(ld_enq_idx)    := Bool(true)
+         laq_addr_val (ld_enq_idx)    := Bool(false)
+         laq_executed (ld_enq_idx)    := Bool(false)
+         laq_succeeded(ld_enq_idx)    := Bool(false)
+         laq_failure  (ld_enq_idx)    := Bool(false)
+         laq_forwarded_std_val(ld_enq_idx)  := Bool(false)
+         debug_laq_put_to_sleep(ld_enq_idx) := Bool(false)
+
+         assert (ld_enq_idx === io.dec_uops(w).ldq_idx, "[lsu] mismatch enq load tag.")
+      }
+      .elsewhen (io.dec_ld_vals(w))
       {
          // TODO is it better to read out ld_idx?
          // val ld_enq_idx = io.dec_uops(w).ldq_idx
@@ -244,10 +269,22 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
          assert (ld_enq_idx === io.dec_uops(w).ldq_idx, "[lsu] mismatch enq load tag.")
       }
-      ld_enq_idx = Mux(io.dec_ld_vals(w) || io.fpga_memreq_valid, WrapInc(ld_enq_idx, num_ld_entries),
+      ld_enq_idx = Mux(io.dec_ld_vals(w) || fpga_load, WrapInc(ld_enq_idx, num_ld_entries),
                                           ld_enq_idx)
 
-      when (io.dec_st_vals(w))
+      when (fpga_store)
+      {
+         stq_uop(st_enq_idx).is_load  := Bool(false)
+         stq_uop(st_enq_idx).is_store := Bool(true)
+
+         stq_entry_val(st_enq_idx) := Bool(true)
+         saq_val      (st_enq_idx) := Bool(false)
+         sdq_val      (st_enq_idx) := Bool(false)
+         stq_executed (st_enq_idx) := Bool(false)
+         stq_succeeded(st_enq_idx) := Bool(false)
+         stq_committed(st_enq_idx) := Bool(false)
+      }
+      .elsewhen (io.dec_st_vals(w))
       {
          stq_uop(st_enq_idx)       := io.dec_uops(w)
 
@@ -258,10 +295,11 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          stq_succeeded(st_enq_idx) := Bool(false)
          stq_committed(st_enq_idx) := Bool(false)
       }
-      next_live_store_mask = Mux(io.dec_st_vals(w), next_live_store_mask | (UInt(1) << st_enq_idx),
-                                                    next_live_store_mask)
+      next_live_store_mask = Mux(io.dec_st_vals(w) || fpga_store,
+                                 next_live_store_mask | (UInt(1) << st_enq_idx),
+                                 next_live_store_mask)
 
-      st_enq_idx = Mux(io.dec_st_vals(w), WrapInc(st_enq_idx, num_st_entries),
+      st_enq_idx = Mux(io.dec_st_vals(w) || fpga_store, WrapInc(st_enq_idx, num_st_entries),
                                           st_enq_idx)
 
    }
@@ -855,9 +893,22 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    //------------------------
    // Handle Memory Responses
    //------------------------
-   printf("LSU io.memresp.valid=%d io.memresp.bits.is_load=%d, will_fire_load_incoming=%d, io.exe_resp.valid=%d, io.memresp.bits.ctrl.is_load=%d\n",
-     io.memresp.valid, io.memresp.bits.is_load, will_fire_load_incoming,
-     io.exe_resp.valid, io.exe_resp.bits.uop.ctrl.is_load)
+   printf("\n")
+   printf("""LSU io.memresp.valid=%d io.memresp.bits.is_load=%d,
+             will_fire_load_incoming=%d,
+             will_fire_sta_incoming=%d,
+             will_fire_std_incoming=%d,
+             io.exe_resp.valid=%d,
+             io.memresp.bits.ctrl.is_load=%d,
+             ld_enq_idx=%d, st_enq_idx=%d\n""",
+     io.memresp.valid, io.memresp.bits.is_load,
+     will_fire_load_incoming,
+     will_fire_sta_incoming,
+     will_fire_std_incoming,
+     io.exe_resp.valid, io.exe_resp.bits.uop.ctrl.is_load,
+     ld_enq_idx, st_enq_idx)
+   printf("\n")
+
    when (io.memresp.valid)
    {
       when (io.memresp.bits.is_load)
@@ -1098,12 +1149,12 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    var temp_stq_commit_head = stq_commit_head
    for (w <- 0 until pl_width)
    {
-      when (io.commit_store_mask(w))
+      when (io.commit_store_mask(w) || fpga_store)
       {
          stq_committed(temp_stq_commit_head) := Bool(true)
       }
 
-      temp_stq_commit_head = Mux(io.commit_store_mask(w),
+      temp_stq_commit_head = Mux(io.commit_store_mask(w) || fpga_store,
                                  WrapInc(temp_stq_commit_head, num_st_entries),
                                  temp_stq_commit_head)
    }

@@ -544,7 +544,9 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    // enqueue addresses,st-data at the end of Execute
    io.lsu_io.exe_resp <> maddrcalc.io.resp
    io.lsu_io.exe_resp.valid := io.fpga_memreq_valid | maddrcalc.io.resp.valid
-   io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid, io.fpga_exe_resp.addr,
+
+   io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.addr,
                                     maddrcalc.io.resp.bits.addr)
    io.lsu_io.exe_resp.bits.uop.is_load := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.uop.is_load,
@@ -552,6 +554,26 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.ctrl.is_load := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.uop.ctrl.is_load,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_load)
+
+   io.lsu_io.exe_resp.bits.uop.is_store := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.uop.is_store,
+                                    maddrcalc.io.resp.bits.uop.is_store)
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_sta := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.uop.ctrl.is_sta,
+                                    maddrcalc.io.resp.bits.uop.ctrl.is_sta)
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_std := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.uop.ctrl.is_std,
+                                    maddrcalc.io.resp.bits.uop.ctrl.is_std)
+   io.lsu_io.exe_resp.bits.data := Mux(io.fpga_memreq_valid,
+                                    io.fpga_exe_resp.data,
+                                    maddrcalc.io.resp.bits.data)
+
+   io.lsu_io.exe_resp.bits.uop.ldq_idx := Mux(io.fpga_memreq_valid,
+                                    0.U,
+                                    maddrcalc.io.resp.bits.uop.ldq_idx)
+   io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(io.fpga_memreq_valid,
+                                    2.U,
+                                    maddrcalc.io.resp.bits.uop.stq_idx)
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
