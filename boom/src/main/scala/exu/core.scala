@@ -508,6 +508,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
       new_sidx = Mux(dec_will_fire(w) && dec_uops(w).is_store, WrapInc(new_sidx, NUM_LSU_ENTRIES), new_sidx)
    }
 
+   exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
+   exe_units.memory_unit.io.fpga_stq_idx := new_sidx
+
    //-------------------------------------------------------------
    // Rob Allocation Logic
 

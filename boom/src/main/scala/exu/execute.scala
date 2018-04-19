@@ -71,6 +71,8 @@ class ExecutionUnitIO(num_rf_read_ports: Int
    val com_exception = Bool(INPUT)
 
    val fpga_memreq_valid = Bool(INPUT)
+   val fpga_ldq_idx = UInt(INPUT, MEM_ADDR_SZ)
+   val fpga_stq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_exe_resp = (new FuncUnitResp(xLen)).flip()
 }
 
@@ -570,10 +572,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                                     maddrcalc.io.resp.bits.data)
 
    io.lsu_io.exe_resp.bits.uop.ldq_idx := Mux(io.fpga_memreq_valid,
-                                    0.U,
+                                    io.fpga_ldq_idx,
                                     maddrcalc.io.resp.bits.uop.ldq_idx)
    io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(io.fpga_memreq_valid,
-                                    2.U,
+                                    io.fpga_stq_idx,
                                     maddrcalc.io.resp.bits.uop.stq_idx)
    io.lsu_io.exe_resp.bits.uop.mem_typ := Mux(io.fpga_memreq_valid,
                                     rocket.MT_W,
