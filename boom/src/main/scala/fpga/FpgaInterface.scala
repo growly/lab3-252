@@ -22,6 +22,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
     val rob_valid       = Bool(INPUT)
     val rob_data        = UInt(INPUT, xLen)
 
+    val laq_full        = Bool(INPUT)
+    val stq_full        = Bool(INPUT)
+
     val memreq_valid    = Bool(OUTPUT)
     val memreq_addr     = UInt(OUTPUT, vaddrBitsExtended)
     val memreq_is_load  = Bool(OUTPUT)
@@ -132,7 +135,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    test2 := test1 + 0x1fe28.U
 
    // Send memory store request at cycle 60
-   when (stallCnt === 60.U) {
+   when (stallCnt === 60.U && !io.laq_full) {
      memreq_valid_reg := true.B
      memreq_addr_reg := test2
      memreq_is_store_reg := true.B
@@ -144,7 +147,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // Send memory load request at cycle 80
    // Expect to receive the value just stored
-   when (stallCnt === 80.U) {
+   when (stallCnt === 80.U && !io.stq_full) {
      memreq_valid_reg := true.B
      memreq_addr_reg := test2
      memreq_is_load_reg := true.B

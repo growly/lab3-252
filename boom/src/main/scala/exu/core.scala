@@ -335,6 +335,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    lsu.io.fpga_memreq_valid := fpga.io.memreq_valid
    lsu.io.fpga_memreq_is_load := fpga.io.memreq_is_load
    lsu.io.fpga_memreq_is_store := fpga.io.memreq_is_store
+   fpga.io.laq_full := lsu.io.laq_full
+   fpga.io.stq_full := lsu.io.stq_full
 
    exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq_valid
 
@@ -447,7 +449,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
                         || !bpd_stage.io.brob.allocate.ready
                         || (dec_valids(w) && dec_uops(w).is_fencei && !lsu.io.lsu_fencei_rdy)
                         )) ||
-                     dec_last_inst_was_stalled //|| fpga.io.runnable
+                     dec_last_inst_was_stalled
 
       printf("[DECODER] width %d stall_me %d\n", UInt(w), stall_me)
 
