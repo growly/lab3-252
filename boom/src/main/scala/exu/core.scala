@@ -512,7 +512,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
    exe_units.memory_unit.io.fpga_stq_idx := new_sidx
-
+   printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",
+     exe_units.memory_unit.io.fpga_ldq_idx,
+     exe_units.memory_unit.io.fpga_stq_idx)
    //-------------------------------------------------------------
    // Rob Allocation Logic
 
@@ -978,6 +980,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    //-------------------------------------------------------------
    //-------------------------------------------------------------
 
+   // TAN: inject pseudo-load/store uop here?
+   // We may need to make LSU function as it is originally implemented
    // Dispatch
    rob.io.enq_valids := rename_stage.io.ren1_mask
    rob.io.enq_uops   := rename_stage.io.ren1_uops
