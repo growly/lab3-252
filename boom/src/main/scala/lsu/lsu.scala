@@ -240,6 +240,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          // val ld_enq_idx = io.dec_uops(w).ldq_idx
          laq_uop(ld_enq_idx).is_load  := Bool(true)
          laq_uop(ld_enq_idx).is_store := Bool(false)
+         laq_uop(ld_enq_idx).mem_typ := rocket.MT_W
 
          laq_st_dep_mask(ld_enq_idx)  := next_live_store_mask
          laq_allocated(ld_enq_idx)    := Bool(true)
@@ -276,6 +277,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       {
          stq_uop(st_enq_idx).is_load  := Bool(false)
          stq_uop(st_enq_idx).is_store := Bool(true)
+         stq_uop(st_enq_idx).mem_typ := rocket.MT_W
 
          stq_entry_val(st_enq_idx) := Bool(true)
          saq_val      (st_enq_idx) := Bool(false)

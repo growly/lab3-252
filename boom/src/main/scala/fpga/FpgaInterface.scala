@@ -131,15 +131,27 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    test1 := 0x8.U << 28
    test2 := test1 + 0x1fe28.U
 
-   // Send memory load request at cycle 70
-   when (stallCnt === 70.U) {
+   // Send memory store request at cycle 60
+   when (stallCnt === 60.U) {
      memreq_valid_reg := true.B
      memreq_addr_reg := test2
      memreq_is_store_reg := true.B
-   } .elsewhen (stallCnt === 71.U) {
+   } .elsewhen (stallCnt === 61.U) {
      memreq_valid_reg := false.B
      memreq_addr_reg := 0.U
      memreq_is_store_reg := false.B
+   }
+
+   // Send memory load request at cycle 80
+   // Expect to receive the value just stored
+   when (stallCnt === 80.U) {
+     memreq_valid_reg := true.B
+     memreq_addr_reg := test2
+     memreq_is_load_reg := true.B
+   } .elsewhen (stallCnt === 81.U) {
+     memreq_valid_reg := false.B
+     memreq_addr_reg := 0.U
+     memreq_is_load_reg := false.B
    }
 
    // stall for 100 cycles

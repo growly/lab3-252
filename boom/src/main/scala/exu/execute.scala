@@ -19,6 +19,7 @@ package boom
 import Chisel._
 import freechips.rocketchip.config.Parameters
 import scala.collection.mutable.ArrayBuffer
+import freechips.rocketchip.rocket
 
 import FUConstants._
 import freechips.rocketchip.tile.XLen
@@ -574,6 +575,9 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(io.fpga_memreq_valid,
                                     2.U,
                                     maddrcalc.io.resp.bits.uop.stq_idx)
+   io.lsu_io.exe_resp.bits.uop.mem_typ := Mux(io.fpga_memreq_valid,
+                                    rocket.MT_W,
+                                    maddrcalc.io.resp.bits.uop.mem_typ)
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
@@ -613,12 +617,14 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                      io.com_exception=%d, io.lsu_io.memreq_uop.is_load=%d,
                      io.dmem.req.valid=%d, io.lsu_io.memresp.valid=%d,
                      io.dmem.req.bits.addr=0x%x, io.dmem.req.bits.kill=%d,
-                     io.dmem.resp.valid=%d, memresp_val=%d, memresp_data=0x%x""",
+                     io.dmem.resp.valid=%d, memresp_val=%d, memresp_data=0x%x,
+                     memresp_uop.mem_typ=%d, io.lsu_io.forward_val=%d""",
      io.fpga_memreq_valid, io.lsu_io.exe_resp.bits.addr, io.lsu_io.memreq_addr,
      io.lsu_io.memreq_val, io.com_exception, io.lsu_io.memreq_uop.is_load,
      io.dmem.req.valid, io.lsu_io.memresp.valid,
      io.dmem.req.bits.addr, io.dmem.req.bits.kill,
-     io.dmem.resp.valid, memresp_val, memresp_data)
+     io.dmem.resp.valid, memresp_val, memresp_data, memresp_uop.mem_typ,
+     io.lsu_io.forward_val)
    printf("\n")
 }
 
