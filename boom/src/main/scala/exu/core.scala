@@ -326,9 +326,15 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // (2) PC is a virtual memory address
    fpga.io.currentPC := io.imem.resp.bits.pc
    fetch_unit.io.fpga_runnable := fpga.io.runnable
+
+   // TAN: FPGA will send an instruction (side-effect free) to the CPU
+   // in order to read the CPU registers. The instruction will be
+   // enqueued to the FetchBuffer
    fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
    fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
 
+   // TAN: Here we assign commit signals to the FPGA.
+   // This should be used for getting data from register file.
    fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
 
@@ -350,11 +356,15 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq.bits.is_load
 
    exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
+   // TAN: for now, is_sta and is_std are set to HIGH at the same time
+   // TODO: would it make sense to separate them, for performance reason?
    exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_store
    exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq.bits.is_store
 
    exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 
+   // TAN: Here we assign memory response signals to the FPGA
+   // We use the tag to distinguish the memory requests
    fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
    fpga.io.memresp.bits.data := exe_units.memory_unit.io.resp(0).bits.data
    fpga.io.memresp.bits.tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
@@ -515,6 +525,10 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
       new_sidx = Mux(dec_will_fire(w) && dec_uops(w).is_store, WrapInc(new_sidx, NUM_LSU_ENTRIES), new_sidx)
    }
 
+   // TAN: we pass current load queue index and store queue index
+   // to the memory unit, so that the LSU can operate in normal order.
+   // Again, we have to do this because we do not inject any uop for
+   // the load/store request in the Decode stage
    exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
    exe_units.memory_unit.io.fpga_stq_idx := new_sidx
    printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",

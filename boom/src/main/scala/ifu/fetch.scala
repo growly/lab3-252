@@ -120,6 +120,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** NextPC Select (F0) ****
    //-------------------------------------------------------------
 
+   // TAN: When FPGA is running, we stall the entire fetch unit (front-end)
    val if_stalled = io.fpga_runnable | !(FetchBuffer.io.enq.ready) // if FetchBuffer backs up, we have to stall the front-end
    io.stalled := if_stalled
    printf("FETCH stall? %d\n", io.stalled)
@@ -437,6 +438,8 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** FetchBuffer Enqueue ****
    //-------------------------------------------------------------
 
+   // TAN: make a pseudo fetch bundle and insert it to the FetchBuffer
+   // No need to fill in all signals, just the ones that matter
    val fetch_bundle_from_fpga = Wire(new FetchBundle)
    fetch_bundle_from_fpga.pc := UInt(0) // dummy PC value
    fetch_bundle_from_fpga.insts(0) := io.fetch_from_fpga_inst
@@ -520,6 +523,8 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    val curr_aligned_pc = ~(~fetch_pc | (UInt(fetch_width*coreInstBytes-1)))
    val cfi_pc = curr_aligned_pc  + (cfi_idx << 2.U)
 
+   // TAN: if FPGA is running, we ignore the following check.
+   // TODO: Maybe the check is not relevant to FPGA execution?
    when (FetchBuffer.io.enq.fire() &&
       !f3_fetch_bundle.replay_if &&
       !f3_fetch_bundle.xcpt_pf_if &&

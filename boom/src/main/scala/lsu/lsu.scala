@@ -236,13 +236,19 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
    for (w <- 0 until pl_width)
    {
+      // TAN: here we create a pseudo uop when FPGA requests a memory transaction
+      // We have to do that because we do not inject any uop into the Decode
+      // stage when FPGA is running
       when (fpga_load)
       {
          // TODO is it better to read out ld_idx?
          // val ld_enq_idx = io.dec_uops(w).ldq_idx
          laq_uop(ld_enq_idx).is_load  := Bool(true)
          laq_uop(ld_enq_idx).is_store := Bool(false)
+         // TAN: for now, just specify word-level access
+         // TODO: FPGA should send this information to LSU
          laq_uop(ld_enq_idx).mem_typ  := rocket.MT_W
+         // TAN: we use the pc for tagging memory requests from FPGA
          laq_uop(ld_enq_idx).pc       := io.fpga_memreq_tag
 
          laq_st_dep_mask(ld_enq_idx)  := next_live_store_mask
@@ -276,11 +282,15 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       ld_enq_idx = Mux(io.dec_ld_vals(w) || fpga_load, WrapInc(ld_enq_idx, num_ld_entries),
                                           ld_enq_idx)
 
+      // TAN: here we create a pseudo uop when FPGA requests a memory transaction
       when (fpga_store)
       {
          stq_uop(st_enq_idx).is_load  := Bool(false)
          stq_uop(st_enq_idx).is_store := Bool(true)
+         // TAN: for now, just specify word-level access
+         // TODO: FPGA should send this information to LSU
          stq_uop(st_enq_idx).mem_typ := rocket.MT_W
+         // TAN: we use the pc for tagging memory requests from FPGA
          stq_uop(st_enq_idx).pc := io.fpga_memreq_tag
 
          stq_entry_val(st_enq_idx) := Bool(true)
@@ -1155,6 +1165,9 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    var temp_stq_commit_head = stq_commit_head
    for (w <- 0 until pl_width)
    {
+      // TAN: once FPGA requests a memory store, set the commit signal to HIGH
+      // We have to do this because we do not record any memory request
+      // in the ROB
       when (io.commit_store_mask(w) || fpga_store)
       {
          stq_committed(temp_stq_commit_head) := Bool(true)
@@ -1194,6 +1207,11 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    for (w <- 0 until pl_width)
    {
       val idx = temp_laq_head
+      // TAN: we use this signal to clear the entry in the load queue
+      // so that it does not become full. Again, because we do not touch
+      // the ROB, we have to make a separate mechanism to clear the load queue
+      // (normally the load queue entry will be cleared once the corresponding 
+      // ROB entry commits)
       val fpga_load_commit = io.fpga_runnable & laq_succeeded(idx)
       when (io.commit_load_mask(w) || fpga_load_commit)
       {

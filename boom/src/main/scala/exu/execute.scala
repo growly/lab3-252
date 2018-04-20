@@ -547,11 +547,21 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
 
    // enqueue addresses,st-data at the end of Execute
    io.lsu_io.exe_resp <> maddrcalc.io.resp
+
+   // TAN: we override the Chisel auto connection above for the following signals
    io.lsu_io.exe_resp.valid := io.fpga_memreq_valid | maddrcalc.io.resp.valid
 
    io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.addr,
                                     maddrcalc.io.resp.bits.addr)
+
+   // TAN: Note: uop.is_load and uop.ctrl.is_load are entirely different.
+   // The former concerns the instruction type (set in Decode stage),
+   // while the latter refers to the control signal used for the LSU.
+   // store might be a good example to clarify the difference:
+   // uop.is_store specifies if the instruction (creating the uop) is a store,
+   // whereas uop.ctrl.is_sta refers to store addresss type or
+   // uop.ctrl.is_std refers to store data type.
    io.lsu_io.exe_resp.bits.uop.is_load := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.uop.is_load,
                                     maddrcalc.io.resp.bits.uop.is_load)
@@ -562,6 +572,7 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.is_store := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.uop.is_store,
                                     maddrcalc.io.resp.bits.uop.is_store)
+
    io.lsu_io.exe_resp.bits.uop.ctrl.is_sta := Mux(io.fpga_memreq_valid,
                                     io.fpga_exe_resp.uop.ctrl.is_sta,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_sta)
@@ -578,10 +589,11 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(io.fpga_memreq_valid,
                                     io.fpga_stq_idx,
                                     maddrcalc.io.resp.bits.uop.stq_idx)
+   // TAN: TODO: receive memory type from FPGA
    io.lsu_io.exe_resp.bits.uop.mem_typ := Mux(io.fpga_memreq_valid,
                                     rocket.MT_W,
                                     maddrcalc.io.resp.bits.uop.mem_typ)
-
+   // TAN: use the pc field of uop to hold FPGA memory tag
    io.lsu_io.exe_resp.bits.uop.pc := Mux(io.fpga_memreq_valid,
                                     io.fpga_memreq_tag,
                                     maddrcalc.io.resp.bits.uop.pc)
