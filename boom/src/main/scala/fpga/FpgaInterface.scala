@@ -6,11 +6,26 @@ import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
 
+class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
+{
+  val addr     = UInt(width = vaddrBitsExtended)
+  val is_load  = Bool()
+  val is_store = Bool()
+  val tag      = UInt(width = 32)
+  val data     = UInt(width = xLen)
+}
+
+class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
+{
+  val tag      = UInt(width = 32)
+  val data     = UInt(width = xLen)
+}
+
 class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
   with HasBoomCoreParameters {
 
   val io = IO(new BoomBundle()(p) {
-    val currentPC     = UInt(INPUT, vaddrBitsExtended)
+    val currentPC       = UInt(INPUT, vaddrBitsExtended)
 
     // High when this interface can replace an instruction sequence starting
     // at the given PC.
@@ -25,18 +40,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
     val laq_full        = Bool(INPUT)
     val stq_full        = Bool(INPUT)
 
-    val memreq_valid    = Bool(OUTPUT)
-    val memreq_addr     = UInt(OUTPUT, vaddrBitsExtended)
-    val memreq_is_load  = Bool(OUTPUT)
-    val memreq_is_store = Bool(OUTPUT)
-
-    val memreq_tag      = UInt(OUTPUT, 32)
-
-    val memreq_data     = UInt(OUTPUT, xLen)
-
-    val memresp_valid   = Bool(INPUT)
-    val memresp_data    = UInt(INPUT, xLen)
-    val memresp_tag     = UInt(INPUT, 32)
+    val memreq          = new DecoupledIO(new FpgaMemReq())
+    val memresp         = new DecoupledIO(new FpgaMemResp()).flip()
 
     // The number of bytes of instructions that can be skipped by activating
     // this module.
@@ -108,14 +113,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
                    Mux(!memreq_is_load_reg || !memreq_is_store_reg, memreq_is_store_reg,
                      toggle === 0.U))
 
-   io.memreq_valid := (memreq_is_store_reg & !io.stq_full) |
+   io.memreq.valid := (memreq_is_store_reg & !io.stq_full) |
                       (memreq_is_load_reg & !io.laq_full)
 
-   io.memreq_addr := Mux(store_en, memreq_store_addr_reg, memreq_load_addr_reg)
-   io.memreq_is_load := memreq_is_load_reg & !io.laq_full & load_en
-   io.memreq_is_store := memreq_is_store_reg & !io.stq_full & store_en
-   io.memreq_data := memreq_data_reg
-   io.memreq_tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
+   io.memreq.bits.addr := Mux(store_en, memreq_store_addr_reg, memreq_load_addr_reg)
+   io.memreq.bits.is_load := memreq_is_load_reg & !io.laq_full & load_en
+   io.memreq.bits.is_store := memreq_is_store_reg & !io.stq_full & store_en
+   io.memreq.bits.data := memreq_data_reg
+   io.memreq.bits.tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
 
    // PC value of the jump_to_kernel instruction: 0x0080001c04
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -203,7 +208,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      runnable_reg := false.B
    }
 
-   assert (!(io.memreq_is_load && io.memreq_is_store), "Error! Both load and store are active!")
+   assert (!(io.memreq.bits.is_load && io.memreq.bits.is_store),
+     "Error! Both load and store are active!")
 
    printf("\n")
    printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
@@ -219,11 +225,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.runnable, stallCnt, cnt0, cnt1,
      fetch_start, fetch_done,
      io.rob_valid, io.rob_data, io.currentPC, sum,
-     io.memreq_is_load, io.memreq_is_store,
-     io.memreq_valid, io.memreq_addr,
-     io.memresp_valid, io.memresp_data,
+     io.memreq.bits.is_load, io.memreq.bits.is_store,
+     io.memreq.valid, io.memreq.bits.addr,
+     io.memresp.valid, io.memresp.bits.data,
      memreq_store_cnt, memreq_load_cnt, io.laq_full, io.stq_full,
-     io.memreq_tag, io.memresp_tag,
+     io.memreq.bits.tag, io.memresp.bits.tag,
      memreq_store_addr_reg, memreq_load_addr_reg,
      store_en, load_en
    )

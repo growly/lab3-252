@@ -332,32 +332,32 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
 
-   lsu.io.fpga_memreq_valid := fpga.io.memreq_valid
-   lsu.io.fpga_memreq_tag := fpga.io.memreq_tag
-   lsu.io.fpga_memreq_is_load := fpga.io.memreq_is_load
-   lsu.io.fpga_memreq_is_store := fpga.io.memreq_is_store
+   lsu.io.fpga_memreq_valid := fpga.io.memreq.valid
+   lsu.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
+   lsu.io.fpga_memreq_is_load := fpga.io.memreq.bits.is_load
+   lsu.io.fpga_memreq_is_store := fpga.io.memreq.bits.is_store
    fpga.io.laq_full := lsu.io.laq_full
    fpga.io.stq_full := lsu.io.stq_full
    lsu.io.fpga_runnable := fpga.io.runnable
 
-   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq_valid
+   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
 
-   exe_units.memory_unit.io.fpga_memreq_tag := fpga.io.memreq_tag
+   exe_units.memory_unit.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
 
-   exe_units.memory_unit.io.fpga_exe_resp.addr := fpga.io.memreq_addr
+   exe_units.memory_unit.io.fpga_exe_resp.addr := fpga.io.memreq.bits.addr
 
-   exe_units.memory_unit.io.fpga_exe_resp.uop.is_load := fpga.io.memreq_is_load
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq_is_load
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_load := fpga.io.memreq.bits.is_load
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq.bits.is_load
 
-   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq_is_store
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq_is_store
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq_is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq.bits.is_store
 
-   exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq_data
+   exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 
-   fpga.io.memresp_valid := exe_units.memory_unit.io.resp(0).valid
-   fpga.io.memresp_data := exe_units.memory_unit.io.resp(0).bits.data
-   fpga.io.memresp_tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
+   fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
+   fpga.io.memresp.bits.data := exe_units.memory_unit.io.resp(0).bits.data
+   fpga.io.memresp.bits.tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
