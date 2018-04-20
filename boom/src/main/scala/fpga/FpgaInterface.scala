@@ -36,6 +36,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
     val memresp_valid   = Bool(INPUT)
     val memresp_data    = UInt(INPUT, xLen)
+    val memresp_tag     = UInt(INPUT, 32)
 
     // The number of bytes of instructions that can be skipped by activating
     // this module.
@@ -205,7 +206,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_valid: %d, memreq_addr: 0x%x,
            memresp_valid: %d, memresp_data: 0x%x,
            memreq_store_cnt: %d, memreq_loadcnt: %d, laq_full: %d, std_full: %d,
-           memreq_tag: %d""",
+           memreq_tag: %d, memresp_tag: %d""",
      io.runnable, stallCnt, cnt0, cnt1,
      fetch_start, fetch_done,
      io.rob_valid, io.rob_data, io.currentPC, sum,
@@ -213,7 +214,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq_valid, io.memreq_addr,
      io.memresp_valid, io.memresp_data,
      memreq_store_cnt, memreq_load_cnt, io.laq_full, io.stq_full,
-     io.memreq_tag
+     io.memreq_tag, io.memresp_tag
    )
    printf("\n")
 

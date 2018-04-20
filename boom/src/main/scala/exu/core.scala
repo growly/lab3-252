@@ -357,6 +357,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    fpga.io.memresp_valid := exe_units.memory_unit.io.resp(0).valid
    fpga.io.memresp_data := exe_units.memory_unit.io.resp(0).bits.data
+   fpga.io.memresp_tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
