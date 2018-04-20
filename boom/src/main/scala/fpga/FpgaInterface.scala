@@ -75,22 +75,47 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val sum = RegInit(0.U(32.W))
    val cnt0 = RegInit(0.U(32.W)) // count fetch
    val cnt1 = RegInit(0.U(32.W)) // count commit
-   val memreq_valid_reg = RegInit(false.B)
    val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
+   val memreq_store_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
+   val memreq_load_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
    val memreq_is_load_reg = RegInit(false.B)
    val memreq_is_store_reg = RegInit(false.B)
    val memreq_data_reg = RegInit(0.U(xLen.W))
    val memreq_tag_reg = RegInit(0.U(32.W))
+   val memreq_store_tag_reg = RegInit(0.U(32.W))
+   val memreq_load_tag_reg = RegInit(0.U(32.W))
+   // 0x8001fe28 exceeds UInt size ... have to break it down as follows
+   val test1 = Reg(UInt(vaddrBitsExtended.W))
+   val test2 = Reg(UInt(vaddrBitsExtended.W))
+   val test3 = RegInit(0x2345.U(xLen.W))
+   test1 := 0x8.U << 28
+   test2 := test1 + 0x1fe28.U
+
+   val start_memreq_load = RegInit(false.B)
+   val start_memreq_store = RegInit(false.B)
+   val memreq_load_cnt = RegInit(0.U(32.W))
+   val memreq_store_cnt = RegInit(0.U(32.W))
 
    io.runnable := runnable_reg
    io.fetch_inst := fetch_inst_reg
    io.fetch_valid := fetch_valid_reg
-   io.memreq_valid := memreq_valid_reg & !io.stq_full & !io.laq_full
-   io.memreq_addr := memreq_addr_reg
-   io.memreq_is_load := memreq_is_load_reg & !io.laq_full
-   io.memreq_is_store := memreq_is_store_reg & !io.stq_full
+
+   val toggle = stallCnt(0)
+   val load_en = Mux(!memreq_is_load_reg, start_memreq_load,
+                   Mux(!memreq_is_load_reg || !memreq_is_store_reg, memreq_is_load_reg,
+                     toggle === 1.U))
+   val store_en = Mux(!memreq_is_store_reg, start_memreq_store,
+                   Mux(!memreq_is_load_reg || !memreq_is_store_reg, memreq_is_store_reg,
+                     toggle === 0.U))
+
+   io.memreq_valid := (memreq_is_store_reg & !io.stq_full) |
+                      (memreq_is_load_reg & !io.laq_full)
+
+   io.memreq_addr := Mux(store_en, memreq_store_addr_reg, memreq_load_addr_reg)
+   io.memreq_is_load := memreq_is_load_reg & !io.laq_full & load_en
+   io.memreq_is_store := memreq_is_store_reg & !io.stq_full & store_en
    io.memreq_data := memreq_data_reg
-   io.memreq_tag := memreq_tag_reg
+   io.memreq_tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
 
    // PC value of the jump_to_kernel instruction: 0x0080001c04
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -133,63 +158,43 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      cnt1 := UInt(0)
    }
 
-   // 0x8001fe28 exceeds UInt size ... have to break it down as follows
-   val test1 = Reg(UInt(vaddrBitsExtended.W))
-   val test2 = Reg(UInt(vaddrBitsExtended.W))
-   val test3 = RegInit(0x2345.U(xLen.W))
-   test1 := 0x8.U << 28
-   test2 := test1 + 0x1fe28.U
-
-   val start_memreq_load = RegInit(false.B)
-   val start_memreq_store = RegInit(false.B)
-   val memreq_load_cnt = RegInit(0.U(32.W))
-   val memreq_store_cnt = RegInit(0.U(32.W))
-
    // Send memory store request at cycle 50
    when (stallCnt === 50.U) {
      start_memreq_store := true.B
    }
 
-   when (start_memreq_store & !io.stq_full) {
-     memreq_valid_reg := true.B
-     memreq_addr_reg := test2 + (memreq_store_cnt << 2)
-     memreq_data_reg := test3 + memreq_store_cnt
-     memreq_is_store_reg := true.B
-     memreq_store_cnt := memreq_store_cnt + 1.U
-     memreq_tag_reg := memreq_store_cnt + 10.U
-   }
-
-   // Stop after 10 memory store requests
-   when (memreq_store_cnt === 1.U && !io.stq_full) {
-     start_memreq_store := false.B
-     memreq_store_cnt := 0.U
-     memreq_valid_reg := false.B
-     memreq_addr_reg := 0.U
-     memreq_is_store_reg := false.B
-     memreq_tag_reg := 0.U
-   }
-
-   // Send memory load request at cycle 80
-   // Expect to receive the value just stored
-   when (stallCnt === 51.U) {
+   // Send memory load request at cycle 55
+   when (stallCnt === 55.U) {
      start_memreq_load := true.B
    }
 
-   when (start_memreq_load && !io.laq_full) {
-     memreq_valid_reg := true.B
-     memreq_addr_reg := test2 + (memreq_load_cnt << 2)
-     memreq_is_load_reg := true.B
-     memreq_load_cnt := memreq_load_cnt + 1.U
-     memreq_tag_reg := memreq_load_cnt + 30.U
+   // Stop after 10 memory requests
+   when (memreq_store_cnt === 10.U && !io.stq_full && store_en) {
+     start_memreq_store := false.B
+     memreq_store_cnt := 0.U
+     memreq_is_store_reg := false.B
+     memreq_store_tag_reg := 0.U
+   }
+   .elsewhen (start_memreq_store && !io.stq_full && store_en) {
+     memreq_store_cnt := memreq_store_cnt + 1.U
+     memreq_data_reg := test3 + memreq_store_cnt
+     memreq_is_store_reg := true.B
+     memreq_store_tag_reg := memreq_store_cnt + 10.U
+     memreq_store_addr_reg := test2 + (memreq_store_cnt << 2)
    }
 
-   when (memreq_load_cnt === 1.U && !io.laq_full) {
+   // Stop after 10 memory requests
+   when (memreq_load_cnt === 10.U && !io.laq_full && load_en) {
      start_memreq_load := false.B
      memreq_load_cnt := 0.U
-     memreq_valid_reg := false.B
-     memreq_addr_reg := 0.U
      memreq_is_load_reg := false.B
-     memreq_tag_reg := 0.U
+     memreq_load_tag_reg := 0.U
+   }
+   .elsewhen (start_memreq_load && !io.laq_full && load_en) {
+     memreq_load_cnt := memreq_load_cnt + 1.U
+     memreq_is_load_reg := true.B
+     memreq_load_tag_reg := memreq_load_cnt + 30.U
+     memreq_load_addr_reg := test2 + (memreq_load_cnt << 2)
    }
 
    // stall for 150 cycles
@@ -197,6 +202,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      stallCnt := 0.U
      runnable_reg := false.B
    }
+
+   assert (!(io.memreq_is_load && io.memreq_is_store), "Error! Both load and store are active!")
 
    printf("\n")
    printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
@@ -206,7 +213,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_valid: %d, memreq_addr: 0x%x,
            memresp_valid: %d, memresp_data: 0x%x,
            memreq_store_cnt: %d, memreq_loadcnt: %d, laq_full: %d, std_full: %d,
-           memreq_tag: %d, memresp_tag: %d""",
+           memreq_tag: %d, memresp_tag: %d,
+           memreq_store_addr_reg=0x%x, memreq_load_addr_reg=0x%x,
+           store_en=%d, load_en=%d""",
      io.runnable, stallCnt, cnt0, cnt1,
      fetch_start, fetch_done,
      io.rob_valid, io.rob_data, io.currentPC, sum,
@@ -214,7 +223,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq_valid, io.memreq_addr,
      io.memresp_valid, io.memresp_data,
      memreq_store_cnt, memreq_load_cnt, io.laq_full, io.stq_full,
-     io.memreq_tag, io.memresp_tag
+     io.memreq_tag, io.memresp_tag,
+     memreq_store_addr_reg, memreq_load_addr_reg,
+     store_en, load_en
    )
    printf("\n")
 

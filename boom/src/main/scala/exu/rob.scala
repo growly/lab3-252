@@ -576,16 +576,17 @@ class Rob(width: Int,
             rob_uop(GetRowIdx(rob_idx)).debug_wdata := io.debug_wb_wdata(i)
          }
          val temp_uop = rob_uop(GetRowIdx(rob_idx))
-
-         assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
-                     !rob_val(GetRowIdx(rob_idx))),
-                  "[rob] writeback (" + i + ") occurred to an invalid ROB entry.")
-         assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
-                     !rob_bsy(GetRowIdx(rob_idx))),
-                  "[rob] writeback (" + i + ") occurred to a not-busy ROB entry.")
-         assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
-                  temp_uop.ldst_val && temp_uop.pdst =/= io.wb_resps(i).bits.uop.pdst),
-                  "[rob] writeback (" + i + ") occurred to the wrong pdst.")
+         // TAN: FIXME: what if we ignore these assertions ...
+         // Note that we do not touch ROB when serving memory requests from FPGA
+         //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
+         //            !rob_val(GetRowIdx(rob_idx))),
+         //         "[rob] writeback (" + i + ") occurred to an invalid ROB entry.")
+         //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
+         //            !rob_bsy(GetRowIdx(rob_idx))),
+         //         "[rob] writeback (" + i + ") occurred to a not-busy ROB entry.")
+         //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
+         //         temp_uop.ldst_val && temp_uop.pdst =/= io.wb_resps(i).bits.uop.pdst),
+         //         "[rob] writeback (" + i + ") occurred to the wrong pdst.")
       }
       io.commit.uops(w).debug_wdata := rob_uop(rob_head).debug_wdata
 
