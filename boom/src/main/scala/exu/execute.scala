@@ -71,6 +71,7 @@ class ExecutionUnitIO(num_rf_read_ports: Int
    val com_exception = Bool(INPUT)
 
    val fpga_memreq_valid = Bool(INPUT)
+   val fpga_memreq_tag = UInt(INPUT, 32)
    val fpga_ldq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_stq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_exe_resp = (new FuncUnitResp(xLen)).flip()
@@ -581,6 +582,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                                     rocket.MT_W,
                                     maddrcalc.io.resp.bits.uop.mem_typ)
 
+   io.lsu_io.exe_resp.bits.uop.pc := Mux(io.fpga_memreq_valid,
+                                    io.fpga_memreq_tag,
+                                    maddrcalc.io.resp.bits.uop.pc)
+
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
 //      "[execute] a valid load is returning while an exception is being thrown.")
@@ -620,13 +625,14 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                      io.dmem.req.valid=%d, io.lsu_io.memresp.valid=%d,
                      io.dmem.req.bits.addr=0x%x, io.dmem.req.bits.kill=%d,
                      io.dmem.resp.valid=%d, memresp_val=%d, memresp_data=0x%x,
-                     memresp_uop.mem_typ=%d, io.lsu_io.forward_val=%d""",
+                     memresp_uop.mem_typ=%d, io.lsu_io.forward_val=%d,
+                     io.resp(0).bits.uop.pc=%d""",
      io.fpga_memreq_valid, io.lsu_io.exe_resp.bits.addr, io.lsu_io.memreq_addr,
      io.lsu_io.memreq_val, io.com_exception, io.lsu_io.memreq_uop.is_load,
      io.dmem.req.valid, io.lsu_io.memresp.valid,
      io.dmem.req.bits.addr, io.dmem.req.bits.kill,
      io.dmem.resp.valid, memresp_val, memresp_data, memresp_uop.mem_typ,
-     io.lsu_io.forward_val)
+     io.lsu_io.forward_val, io.resp(0).bits.uop.pc)
    printf("\n")
 }
 

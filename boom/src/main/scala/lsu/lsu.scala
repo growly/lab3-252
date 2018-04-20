@@ -137,6 +137,7 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    override def cloneType: this.type = new LoadStoreUnitIO(pl_width)(p).asInstanceOf[this.type]
 
    val fpga_memreq_valid     = Bool(INPUT)
+   val fpga_memreq_tag       = UInt(INPUT, 32)
    val fpga_memreq_is_load   = Bool(INPUT)
    val fpga_memreq_is_store  = Bool(INPUT)
    val fpga_runnable         = Bool(INPUT)
@@ -241,7 +242,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          // val ld_enq_idx = io.dec_uops(w).ldq_idx
          laq_uop(ld_enq_idx).is_load  := Bool(true)
          laq_uop(ld_enq_idx).is_store := Bool(false)
-         laq_uop(ld_enq_idx).mem_typ := rocket.MT_W
+         laq_uop(ld_enq_idx).mem_typ  := rocket.MT_W
+         laq_uop(ld_enq_idx).pc       := io.fpga_memreq_tag
 
          laq_st_dep_mask(ld_enq_idx)  := next_live_store_mask
          laq_allocated(ld_enq_idx)    := Bool(true)
@@ -279,6 +281,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          stq_uop(st_enq_idx).is_load  := Bool(false)
          stq_uop(st_enq_idx).is_store := Bool(true)
          stq_uop(st_enq_idx).mem_typ := rocket.MT_W
+         stq_uop(st_enq_idx).pc := io.fpga_memreq_tag
 
          stq_entry_val(st_enq_idx) := Bool(true)
          saq_val      (st_enq_idx) := Bool(false)
