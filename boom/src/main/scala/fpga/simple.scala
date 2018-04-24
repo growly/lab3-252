@@ -1,0 +1,174 @@
+package boom
+
+import chisel3._
+import chisel3.util._
+
+class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
+  val io = IO(new Bundle {
+    val start = Input(Bool())
+    val done = Output(Bool())
+
+    val RegA0 = Input(UInt(dataWidth.W)) // &arr1[0]
+    val RegA1 = Input(UInt(dataWidth.W)) // &arr2[0]
+    val RegA2 = Input(UInt(dataWidth.W)) // k
+    val RegA3 = Input(UInt(dataWidth.W)) // x
+    val RegA4 = Input(UInt(dataWidth.W)) // y
+    val RegA5 = Input(UInt(dataWidth.W)) // z
+    val RegA6 = Input(UInt(dataWidth.W)) // n
+
+    val mem_p0_addr = new DecoupledIO(UInt(addrWidth.W))
+    val mem_p0_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
+
+    val mem_p1_addr = new DecoupledIO(UInt(addrWidth.W))
+    val mem_p1_data_out = new DecoupledIO(UInt(addrWidth.W))
+  })
+
+  val m0 = Module(new Merge(2, dataWidth))
+  val fifo0 = Module(new FIFO_wrapper(dataWidth, 2))
+  val ef0 = Module(new Eager_Fork(3, dataWidth))
+  val ef1 = Module(new Eager_Fork(2, dataWidth))
+  val ld0 = Module(new Load(addrWidth, dataWidth))
+  val j0 = Module(new Join(2, dataWidth))
+  val st0 = Module(new Store(addrWidth, dataWidth))
+  val b0 = Module(new Branch(dataWidth))
+
+  printf("""[simple]
+    m0.io.in(0).bits=0x%x, m0.io.in(0).valid=%d, m0.io.in(0).ready=%d,
+    m0.io.in(1).bits=0%x, m0.io.in(1).valid=%d, m0.io.in(1).ready=%d,
+    m0.io.out.bits=0%x, m0.io.out.valid=%d, m0.io.out.ready=%d,
+
+    fifo0.io.in.bits=0x%x, fifo0.io.in.valid=%d, fifo0.io.in.ready=%d,
+    fifo0.io.out.bits=0x%x, fifo0.io.out.valid=%d, fifo0.io.out.ready=%d,
+
+    ef0.io.in.bits=0x%x, ef0.io.in.valid=%d, ef0.io.in.ready=%d,
+    ef0.io.out(0).bits=0x%x, ef0.io.out(0).valid=%d, ef0.io.out(0).ready=%d,
+    ef0.io.out(1).bits=0x%x, ef0.io.out(1).valid=%d, ef0.io.out(1).ready=%d,
+    ef0.io.out(2).bits=0x%x, ef0.io.out(2).valid=%d, ef0.io.out(2).ready=%d,
+
+    ld0.io.in.bits=0x%x, ld0.io.in.valid=%d,  ld0.io.in.ready=%d,
+    ld0.io.out.bits=0x%x, ld.io.out.valid=%d, ld.io.out.ready=%d,
+
+    j0.io.in(0).bits=0x%x, j0.io.in(0).valid=%d, j0.io.in(0).ready=%d,
+    j0.io.in(1).bits=0x%x, j0.io.in(1).valid=%d, j0.io.in(1).ready=%d,
+    j0.io.out.bits(0)=0x%x, j0.io.out.bits(1)=0x%x, j0.io.out.valid=%d, j0.io.out.ready=%d,
+
+    st0.io.in(0).bits=0x%x,  st0.io.in(1).bits=0x%x,
+    st0.io.in(0).valid=%d, st0.io.in(1).valid=%d,
+    st0.io.in(0).ready=%d, st0.io.in(1).ready=%d,
+
+    ef1.io.in.bits=0x%x, ef1.io.in.valid=%d, ef1.io.in.ready=%d,
+    ef1.io.out(0).bits=0x%x, ef1.io.out(0).valid=%d, ef1.io.out(0).ready=%d,
+    ef1.io.out(1).bits=0x%x, ef1.io.out(1).valid=%d, ef1.io.out(1).ready=%d,
+
+    b0.io.in.bits=0x%x, b0.io.in.valid=%d, b0.io.in.ready=%d,
+    b0.io.cnd=%d,
+    b0.io.out(0).bits=0x%x, b0.io.out(0).valid=%d, b0.io.out(0).ready=%d,
+    b0.io.out(1).bits=0x%x, b0.io.out(1).valid=%d, b0.io.out(1).ready=%d
+
+    """,
+    m0.io.in(0).bits, m0.io.in(0).valid, m0.io.in(0).ready,
+    m0.io.in(1).bits, m0.io.in(1).valid, m0.io.in(1).ready,
+    m0.io.out.bits, m0.io.out.valid, m0.io.out.ready,
+
+    fifo0.io.in.bits, fifo0.io.in.valid, fifo0.io.in.ready,
+    fifo0.io.out.bits, fifo0.io.out.valid, fifo0.io.out.ready,
+
+    ef0.io.in.bits, ef0.io.in.valid, ef0.io.in.ready,
+    ef0.io.out(0).bits, ef0.io.out(0).valid, ef0.io.out(0).ready,
+    ef0.io.out(1).bits, ef0.io.out(1).valid, ef0.io.out(1).ready,
+    ef0.io.out(2).bits, ef0.io.out(2).valid, ef0.io.out(2).ready,
+
+    ld0.io.in.bits, ld0.io.in.valid, ld0.io.in.ready,
+    ld0.io.out.bits, ld0.io.out.valid, ld0.io.out.ready,
+
+    j0.io.in(0).bits, j0.io.in(0).valid, j0.io.in(0).ready,
+    j0.io.in(1).bits, j0.io.in(1).valid, j0.io.in(1).ready,
+    j0.io.out.bits(0), j0.io.out.bits(1), j0.io.out.valid, j0.io.out.ready,
+
+    st0.io.in(0).bits,  st0.io.in(1).bits, st0.io.in(0).valid, st0.io.in(1).valid,
+    st0.io.in(0).ready, st0.io.in(1).ready,
+
+    ef1.io.in.bits, ef1.io.in.valid, ef1.io.in.ready,
+    ef1.io.out(0).bits, ef1.io.out(0).valid, ef1.io.out(0).ready,
+    ef1.io.out(1).bits, ef1.io.out(1).valid, ef1.io.out(1).ready,
+
+    b0.io.in.bits, b0.io.in.valid, b0.io.in.ready,
+    b0.io.cond,
+    b0.io.out(0).bits, b0.io.out(0).valid, b0.io.out(0).ready,
+    b0.io.out(1).bits, b0.io.out(1).valid, b0.io.out(1).ready
+  )
+
+  // One cycle start signal for the circuit
+  val start_reg = RegInit(Bool(), false.B)
+  when (start_reg) {
+    start_reg := false.B
+  } .elsewhen (io.start) {
+    start_reg := true.B
+  }
+
+  // Datapath
+  m0.io.in(0).bits := io.RegA3 // initial value of the loop index
+  m0.io.in(1).bits := b0.io.out(1).bits // update value of the loop index
+  fifo0.io.in.bits := m0.io.out.bits
+  ef0.io.in.bits := fifo0.io.out.bits
+  ef1.io.in.bits := ef0.io.out(2).bits + io.RegA2 // increment the loop index
+  b0.io.cond := ef1.io.out(0).bits < io.RegA6 // compare loop index against N
+  b0.io.in.bits := ef1.io.out(1).bits
+  j0.io.in(1).bits := ld0.io.out.bits * io.RegA4 + io.RegA5
+  ld0.io.in.bits := io.RegA0 + (ef0.io.out(0).bits << 2)
+  j0.io.in(0).bits := io.RegA1 + (ef0.io.out(1).bits << 2)
+  st0.io.in(0).bits := j0.io.out.bits(0) // store addr
+  st0.io.in(1).bits := j0.io.out.bits(1) // store data
+
+  io.mem_p0_addr.bits := ld0.io.mem_addr.bits
+  ld0.io.mem_data_in.bits := io.mem_p0_data_in.bits
+
+  io.mem_p1_addr.bits := st0.io.mem_addr.bits
+  io.mem_p1_data_out.bits := st0.io.mem_data_out.bits
+        
+  // Control
+  m0.io.in(0).valid := start_reg
+  m0.io.in(1).valid := b0.io.out(1).valid
+  m0.io.out.ready := fifo0.io.in.ready
+
+  fifo0.io.in.valid := m0.io.out.valid
+  fifo0.io.out.ready := ef0.io.in.ready
+
+  ef0.io.in.valid := fifo0.io.out.valid
+  ef0.io.out(0).ready := ld0.io.in.ready
+  ef0.io.out(1).ready := j0.io.in(0).ready
+  ef0.io.out(2).ready := ef1.io.in.ready
+
+  ef1.io.in.valid := ef0.io.out(2).valid
+  ef1.io.out(0).ready := Bool(true)
+  ef1.io.out(1).ready := b0.io.in.ready
+
+  b0.io.in.valid := ef1.io.out(1).valid
+  // End of branch
+  b0.io.out(0).ready := Bool(false)
+  // Loop-back edge
+  b0.io.out(1).ready := m0.io.in(1).ready
+
+  ld0.io.in.valid := ef0.io.out(0).valid
+  ld0.io.out.ready := j0.io.in(1).ready
+
+  // Sync store addr and store data
+  j0.io.in(0).valid := ef0.io.out(1).valid
+  j0.io.in(1).valid := ld0.io.out.valid
+  j0.io.out.ready := st0.io.in(0).ready & st0.io.in(1).ready
+  st0.io.in(0).valid := j0.io.out.valid
+  st0.io.in(1).valid := j0.io.out.valid
+
+  io.mem_p0_addr.valid := ld0.io.mem_addr.valid
+  ld0.io.mem_addr.ready := io.mem_p0_addr.ready
+  ld0.io.mem_data_in.valid := io.mem_p0_data_in.valid
+  io.mem_p0_data_in.ready := ld0.io.mem_data_in.ready
+
+  io.mem_p1_addr.valid := st0.io.mem_addr.valid
+  st0.io.mem_addr.ready := io.mem_p1_addr.ready
+  io.mem_p1_data_out.valid := st0.io.mem_data_out.valid
+  st0.io.mem_data_out.ready := io.mem_p1_data_out.ready
+    
+  io.done := b0.io.out(0).valid
+
+}
