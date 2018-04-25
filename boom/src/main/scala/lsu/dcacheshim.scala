@@ -309,13 +309,43 @@ class DCacheShim(implicit p: Parameters) extends BoomModule()(p)
    printf("""DCache SHIM io.core.resp.valid=%d, cache_load_ack=%d,
            inflight_load=%d, resp_tag=%d, was_store=%d, dmem_s2_nack=%d,
            enq_val=%d, enq_rdy=%d, io.core.req.valid=%d, io.core.req.bits.uop.is_load=%d,
-           io.dmem.req.ready=%d""",
+           io.dmem.req.ready=%d,
+           io.core.req.ready=%d,
+           io.dmem.req.valid=%d,
+           io.dmem.req.bits.typ=%d,
+           io.dmem.req.bits.addr=0x%x,
+           io.dmem.req.bits.tag=%d,
+           io.dmem.req.bits.cmd=%d,
+           io.dmem.s1_data.data=0x%x,
+           io.dmem.s1_data.mask=%d,
+           io.dmem.s1_kill=%d,
+           io.dmem.invalidate_lr=%d,
+           io.dmem.resp.valid=%d,
+           io.dmem.resp.bits.has_data=%d,
+           io.dmem.resp.bits.data=0x%x
+     """,
      io.core.resp.valid, cache_load_ack, !inflight_load_buffer(resp_tag).was_killed,
      resp_tag,
      was_store_and_not_amo, io.dmem.s2_nack,
      enq_val, enq_rdy,
      io.core.req.valid, io.core.req.bits.uop.is_load,
-     io.dmem.req.ready)
+     io.dmem.req.ready,
+
+     io.core.req.ready,
+     io.dmem.req.valid,
+     io.dmem.req.bits.typ,
+     io.dmem.req.bits.addr,
+     io.dmem.req.bits.tag,
+     io.dmem.req.bits.cmd,
+     io.dmem.s1_data.data,
+     io.dmem.s1_data.mask,
+     io.dmem.s1_kill,
+     io.dmem.invalidate_lr,
+
+     io.dmem.resp.valid,
+     io.dmem.resp.bits.has_data,
+     io.dmem.resp.bits.data
+   )
    printf("\n")
 
    for (i <- 0 until max_num_inflight)
