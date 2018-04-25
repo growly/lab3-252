@@ -47,6 +47,7 @@ class ExecutionUnitIO(num_rf_read_ports: Int
                      , num_bypass_ports: Int
                      , data_width: Int
                      )(implicit p: Parameters) extends BoomBundle()(p)
+  with freechips.rocketchip.rocket.constants.MemoryOpConstants
 {
    // describe which functional units we support (used by the issue window)
    val fu_types = Bits(OUTPUT, FUC_SZ)
@@ -75,6 +76,7 @@ class ExecutionUnitIO(num_rf_read_ports: Int
    val fpga_ldq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_stq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_exe_resp = (new FuncUnitResp(xLen)).flip()
+   val fpga_mem_cmd = UInt(INPUT, M_SZ)
 }
 
 abstract class ExecutionUnit(val num_rf_read_ports: Int
@@ -548,12 +550,43 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    // enqueue addresses,st-data at the end of Execute
    io.lsu_io.exe_resp <> maddrcalc.io.resp
 
-   // TAN: we override the Chisel auto connection above for the following signals
-   io.lsu_io.exe_resp.valid := io.fpga_memreq_valid | maddrcalc.io.resp.valid
+   val fpga_memreq_valid_reg = RegInit(false.B)
 
-   io.lsu_io.exe_resp.bits.addr := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.addr,
+   val fpga_exe_resp_addr_reg = RegInit(0.U)
+   val fpga_exe_resp_uop_is_load_reg = RegInit(false.B)
+   val fpga_exe_resp_uop_ctrl_is_load_reg = RegInit(false.B)
+   val fpga_exe_resp_uop_is_store_reg = RegInit(false.B)
+   val fpga_exe_resp_uop_ctrl_is_sta_reg = RegInit(false.B)
+   val fpga_exe_resp_uop_ctrl_is_std_reg = RegInit(false.B)
+   val fpga_exe_resp_uop_mem_cmd_reg = RegInit(0.U)
+   val fpga_exe_resp_bits_data_reg = RegInit(0.U)
+   val fpga_exe_resp_bits_uop_ldq_idx_reg = RegInit(0.U)
+   val fpga_exe_resp_bits_uop_stq_idx_reg = RegInit(0.U)
+   val fpga_exe_resp_bits_uop_pc_reg = RegInit(0.U)
+
+   fpga_memreq_valid_reg := io.fpga_memreq_valid
+
+   fpga_exe_resp_addr_reg := io.fpga_exe_resp.addr
+   fpga_exe_resp_uop_is_load_reg := io.fpga_exe_resp.uop.is_load
+   fpga_exe_resp_uop_ctrl_is_load_reg := io.fpga_exe_resp.uop.ctrl.is_load
+   fpga_exe_resp_uop_is_store_reg := io.fpga_exe_resp.uop.is_store
+   fpga_exe_resp_uop_ctrl_is_std_reg := io.fpga_exe_resp.uop.ctrl.is_std
+   fpga_exe_resp_uop_ctrl_is_sta_reg := io.fpga_exe_resp.uop.ctrl.is_sta
+   fpga_exe_resp_uop_mem_cmd_reg := io.fpga_exe_resp.uop.mem_cmd
+   fpga_exe_resp_bits_data_reg := io.fpga_exe_resp.data
+   fpga_exe_resp_bits_uop_ldq_idx_reg := io.fpga_ldq_idx
+   fpga_exe_resp_bits_uop_stq_idx_reg := io.fpga_stq_idx
+   fpga_exe_resp_bits_uop_pc_reg := io.fpga_memreq_tag
+
+   // TAN: we override the Chisel auto connection above for the following signals
+   // We will delay the memreq from FPGA one cycle to match the memreq behaviour that
+   // BOOM does
+   io.lsu_io.exe_resp.valid := fpga_memreq_valid_reg | maddrcalc.io.resp.valid
+   io.lsu_io.exe_resp.bits.addr := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_addr_reg,
                                     maddrcalc.io.resp.bits.addr)
+
+
 
    // TAN: Note: uop.is_load and uop.ctrl.is_load are entirely different.
    // The former concerns the instruction type (set in Decode stage),
@@ -562,40 +595,44 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    // uop.is_store specifies if the instruction (creating the uop) is a store,
    // whereas uop.ctrl.is_sta refers to store addresss type or
    // uop.ctrl.is_std refers to store data type.
-   io.lsu_io.exe_resp.bits.uop.is_load := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.uop.is_load,
+   io.lsu_io.exe_resp.bits.uop.is_load := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_is_load_reg,
                                     maddrcalc.io.resp.bits.uop.is_load)
-   io.lsu_io.exe_resp.bits.uop.ctrl.is_load := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.uop.ctrl.is_load,
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_load := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_ctrl_is_load_reg,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_load)
+   io.lsu_io.exe_resp.bits.uop.mem_cmd := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_mem_cmd_reg,
+                                    maddrcalc.io.resp.bits.uop.mem_cmd)
 
-   io.lsu_io.exe_resp.bits.uop.is_store := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.uop.is_store,
+   io.lsu_io.exe_resp.bits.uop.is_store := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_is_store_reg,
                                     maddrcalc.io.resp.bits.uop.is_store)
 
-   io.lsu_io.exe_resp.bits.uop.ctrl.is_sta := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.uop.ctrl.is_sta,
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_sta := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_ctrl_is_sta_reg,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_sta)
-   io.lsu_io.exe_resp.bits.uop.ctrl.is_std := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.uop.ctrl.is_std,
+   io.lsu_io.exe_resp.bits.uop.ctrl.is_std := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_uop_ctrl_is_std_reg,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_std)
-   io.lsu_io.exe_resp.bits.data := Mux(io.fpga_memreq_valid,
-                                    io.fpga_exe_resp.data,
+
+   io.lsu_io.exe_resp.bits.data := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_bits_data_reg,
                                     maddrcalc.io.resp.bits.data)
 
-   io.lsu_io.exe_resp.bits.uop.ldq_idx := Mux(io.fpga_memreq_valid,
-                                    io.fpga_ldq_idx,
+   io.lsu_io.exe_resp.bits.uop.ldq_idx := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_bits_uop_ldq_idx_reg,
                                     maddrcalc.io.resp.bits.uop.ldq_idx)
-   io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(io.fpga_memreq_valid,
-                                    io.fpga_stq_idx,
+   io.lsu_io.exe_resp.bits.uop.stq_idx := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_bits_uop_stq_idx_reg,
                                     maddrcalc.io.resp.bits.uop.stq_idx)
    // TAN: TODO: receive memory type from FPGA
-   io.lsu_io.exe_resp.bits.uop.mem_typ := Mux(io.fpga_memreq_valid,
+   io.lsu_io.exe_resp.bits.uop.mem_typ := Mux(fpga_memreq_valid_reg,
                                     rocket.MT_W,
                                     maddrcalc.io.resp.bits.uop.mem_typ)
    // TAN: use the pc field of uop to hold FPGA memory tag
-   io.lsu_io.exe_resp.bits.uop.pc := Mux(io.fpga_memreq_valid,
-                                    io.fpga_memreq_tag,
+   io.lsu_io.exe_resp.bits.uop.pc := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_bits_uop_pc_reg,
                                     maddrcalc.io.resp.bits.uop.pc)
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
@@ -638,13 +675,23 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                      io.dmem.req.bits.addr=0x%x, io.dmem.req.bits.kill=%d,
                      io.dmem.resp.valid=%d, memresp_val=%d, memresp_data=0x%x,
                      memresp_uop.mem_typ=%d, io.lsu_io.forward_val=%d,
-                     io.resp(0).bits.uop.pc=%d""",
+                     io.resp(0).bits.uop.pc=%d,
+                     fpga_memreq_valid_reg=%d,
+                     io.fpga_exe_resp.uop.is_load=%d,
+                     fpga_exe_resp_uop_is_load_reg=%d,
+                     io.lsu_io.exe_resp.bits.uop.is_load=%d
+     """,
      io.fpga_memreq_valid, io.lsu_io.exe_resp.bits.addr, io.lsu_io.memreq_addr,
      io.lsu_io.memreq_val, io.com_exception, io.lsu_io.memreq_uop.is_load,
      io.dmem.req.valid, io.lsu_io.memresp.valid,
      io.dmem.req.bits.addr, io.dmem.req.bits.kill,
      io.dmem.resp.valid, memresp_val, memresp_data, memresp_uop.mem_typ,
-     io.lsu_io.forward_val, io.resp(0).bits.uop.pc)
+     io.lsu_io.forward_val, io.resp(0).bits.uop.pc,
+     fpga_memreq_valid_reg,
+     io.fpga_exe_resp.uop.is_load,
+     fpga_exe_resp_uop_is_load_reg,
+     io.lsu_io.exe_resp.bits.uop.is_load
+   )
    printf("\n")
 }
 

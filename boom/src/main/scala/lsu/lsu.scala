@@ -141,6 +141,8 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    val fpga_memreq_is_load   = Bool(INPUT)
    val fpga_memreq_is_store  = Bool(INPUT)
    val fpga_runnable         = Bool(INPUT)
+   val fpga_ldq_idx          = UInt(INPUT, MEM_ADDR_SZ)
+   val fpga_stq_idx          = UInt(INPUT, MEM_ADDR_SZ)
 }
 
 
@@ -250,6 +252,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          laq_uop(ld_enq_idx).mem_typ  := rocket.MT_W
          // TAN: we use the pc for tagging memory requests from FPGA
          laq_uop(ld_enq_idx).pc       := io.fpga_memreq_tag
+         laq_uop(ld_enq_idx).ldq_idx  := io.fpga_ldq_idx
+         laq_uop(ld_enq_idx).mem_cmd  := M_XRD
 
          laq_st_dep_mask(ld_enq_idx)  := next_live_store_mask
          laq_allocated(ld_enq_idx)    := Bool(true)
@@ -292,6 +296,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          stq_uop(st_enq_idx).mem_typ := rocket.MT_W
          // TAN: we use the pc for tagging memory requests from FPGA
          stq_uop(st_enq_idx).pc := io.fpga_memreq_tag
+         stq_uop(st_enq_idx).stq_idx := io.fpga_stq_idx
+         stq_uop(st_enq_idx).mem_cmd := M_XWR
 
          stq_entry_val(st_enq_idx) := Bool(true)
          saq_val      (st_enq_idx) := Bool(false)
@@ -495,13 +501,14 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    val exe_ld_idx_wakeup = RegNext(
       AgePriorityEncoder((0 until num_ld_entries).map(i => laq_addr_val(i) & ~laq_executed(i)), laq_head))
 
-
+   // TAN: note that FPGA does not use ROB. Hence, it does not make sense to check
+   // for load commit at ROB's head when FPGA is running
    when (laq_addr_val       (exe_ld_idx_wakeup) &&
          !laq_is_virtual    (exe_ld_idx_wakeup) &&
          laq_allocated      (exe_ld_idx_wakeup) &&
          !laq_executed      (exe_ld_idx_wakeup) &&
          !laq_failure       (exe_ld_idx_wakeup) &&
-         (!laq_is_uncacheable(exe_ld_idx_wakeup) || (io.commit_load_at_rob_head && laq_head === exe_ld_idx_wakeup))
+         (!laq_is_uncacheable(exe_ld_idx_wakeup) || ((io.commit_load_at_rob_head || io.fpga_runnable) && laq_head === exe_ld_idx_wakeup))
          )
    {
       can_fire_load_wakeup := Bool(true)
@@ -909,22 +916,6 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    //------------------------
    // Handle Memory Responses
    //------------------------
-   printf("\n")
-   printf("""LSU io.memresp.valid=%d io.memresp.bits.is_load=%d,
-             will_fire_load_incoming=%d,
-             will_fire_sta_incoming=%d,
-             will_fire_std_incoming=%d,
-             io.exe_resp.valid=%d,
-             io.memresp.bits.ctrl.is_load=%d,
-             ld_enq_idx=%d, st_enq_idx=%d\n""",
-     io.memresp.valid, io.memresp.bits.is_load,
-     will_fire_load_incoming,
-     will_fire_sta_incoming,
-     will_fire_std_incoming,
-     io.exe_resp.valid, io.exe_resp.bits.uop.ctrl.is_load,
-     ld_enq_idx, st_enq_idx)
-   printf("\n")
-
    when (io.memresp.valid)
    {
       when (io.memresp.bits.is_load)
@@ -1163,17 +1154,23 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    //-------------------------------------------------------------
 
    var temp_stq_commit_head = stq_commit_head
+   // TAN: once FPGA starts running and the corresponding SAQ/STQ entries
+   // are valid, set the commit signal to HIGH
+   // We have to do this because we do not record any memory request
+   // in the ROB
+   val fpga_store_commit = io.fpga_runnable &&
+                           stq_entry_val(temp_stq_commit_head) &&
+                           saq_val(temp_stq_commit_head) &&
+                           sdq_val(temp_stq_commit_head)
+
    for (w <- 0 until pl_width)
    {
-      // TAN: once FPGA requests a memory store, set the commit signal to HIGH
-      // We have to do this because we do not record any memory request
-      // in the ROB
-      when (io.commit_store_mask(w) || fpga_store)
+      when (io.commit_store_mask(w) || fpga_store_commit)
       {
          stq_committed(temp_stq_commit_head) := Bool(true)
       }
 
-      temp_stq_commit_head = Mux(io.commit_store_mask(w) || fpga_store,
+      temp_stq_commit_head = Mux(io.commit_store_mask(w) || fpga_store_commit,
                                  WrapInc(temp_stq_commit_head, num_st_entries),
                                  temp_stq_commit_head)
    }
@@ -1212,7 +1209,10 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       // the ROB, we have to make a separate mechanism to clear the load queue
       // (normally the load queue entry will be cleared once the corresponding 
       // ROB entry commits)
-      val fpga_load_commit = io.fpga_runnable & laq_succeeded(idx)
+      val fpga_load_commit = io.fpga_runnable & laq_allocated(idx) &
+                                                laq_addr_val(idx) &
+                                                laq_executed(idx) &
+                                                laq_succeeded(idx)
       when (io.commit_load_mask(w) || fpga_load_commit)
       {
          assert (laq_allocated(idx), "[lsu] trying to commit an un-allocated load entry.")
@@ -1227,7 +1227,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          laq_forwarded_std_val(idx) := Bool(false)
       }
 
-      temp_laq_head = Mux(io.commit_load_mask(w) || fpga_load_commit, WrapInc(temp_laq_head, num_ld_entries), temp_laq_head)
+      temp_laq_head = Mux(io.commit_load_mask(w) || fpga_load_commit,
+        WrapInc(temp_laq_head, num_ld_entries), temp_laq_head)
    }
    laq_head := temp_laq_head
 
@@ -1397,6 +1398,56 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    io.counters.ld_killed       := RegNext(ld_was_killed)
    io.counters.stld_order_fail := RegNext(stld_order_fail)
    io.counters.ldld_order_fail := RegNext(ldld_order_fail)
+
+   printf("\n")
+   printf("""LSU io.memresp.valid=%d io.memresp.bits.is_load=%d,
+             will_fire_load_incoming=%d,
+             will_fire_load_retry=%d, will_fire_load_wakeup=%d
+             will_fire_sta_incoming=%d,
+             will_fire_std_incoming=%d,
+             io.exe_resp.valid=%d,
+             io.memresp.bits.ctrl.is_load=%d,
+             ld_enq_idx=%d, st_enq_idx=%d,
+             exe_ld_uop.ldq_idx=%d,
+             clr_ld=%d,
+             exe_ld_idx_wakeup=%d,
+             ld_enq_idx=%d,
+             io.nack.valid=%d,
+             exe_tlb_uop.ldq_idx=%d,
+             laq_addr_val(exe_tlb_uop.ldq_idx)=%d,
+             exe_tlb_uop.stq_idx=%d,
+             saq_val(exe_tlb_uop.stq_idx)=%d,
+             io.exe_resp.bits.uop.stq_idx=%d,
+             sdq_val(io.exe_resp.bits.uop.stq_idx)=%d,
+             can_fire_store_commit=%d,
+             can_fire_load_wakeup=%d,
+             lcam_avail=%d,
+             tlb_addr_uncacheable=%d, tlb_miss=%d
+     """,
+     io.memresp.valid, io.memresp.bits.is_load,
+     will_fire_load_incoming,
+     will_fire_load_retry, will_fire_load_wakeup,
+     will_fire_sta_incoming,
+     will_fire_std_incoming,
+     io.exe_resp.valid, io.exe_resp.bits.uop.ctrl.is_load,
+     ld_enq_idx, st_enq_idx,
+     exe_ld_uop.ldq_idx,
+     clr_ld,
+     exe_ld_idx_wakeup,
+     ld_enq_idx,
+     io.nack.valid,
+     exe_tlb_uop.ldq_idx,
+     laq_addr_val(exe_tlb_uop.ldq_idx),
+     exe_tlb_uop.stq_idx,
+     saq_val(exe_tlb_uop.stq_idx),
+     io.exe_resp.bits.uop.stq_idx,
+     sdq_val(io.exe_resp.bits.uop.stq_idx),
+     can_fire_store_commit,
+     can_fire_load_wakeup,
+     lcam_avail,
+     tlb_addr_uncacheable, tlb_miss
+   )
+   printf("\n")
 
    if (DEBUG_PRINTF_LSU)
    {

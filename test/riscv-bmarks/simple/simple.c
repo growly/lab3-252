@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "util.h"
 
-#define SIZE 1000
+#define SIZE 100
 typedef int DATATYPE;
 
 __attribute__ ((noinline)) int test(DATATYPE *arr1, DATATYPE *arr2,
@@ -31,8 +31,8 @@ int main() {
     arr1[i] = i;
 
   setStats(1);
-  simple(arr1, arr2, 1, 2, 3, 4, 1000);
+  simple(arr1, arr2, 1, 2, 3, 4, SIZE);
   setStats(0);
 
-  return test(arr1, arr2, 1, 2, 3, 4, 1000);
+  return test(arr1, arr2, 1, 2, 3, 4, SIZE);
 }

@@ -364,6 +364,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 
+   exe_units.memory_unit.io.fpga_mem_cmd := fpga.io.memreq.bits.mem_cmd
+
    // TAN: Here we assign memory response signals to the FPGA
    // We use the tag to distinguish the memory requests
    fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
@@ -532,6 +534,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // the load/store request in the Decode stage
    exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
    exe_units.memory_unit.io.fpga_stq_idx := new_sidx
+   lsu.io.fpga_ldq_idx := new_lidx
+   lsu.io.fpga_stq_idx := new_sidx
    printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",
      exe_units.memory_unit.io.fpga_ldq_idx,
      exe_units.memory_unit.io.fpga_stq_idx)

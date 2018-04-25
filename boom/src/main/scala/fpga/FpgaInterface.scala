@@ -5,14 +5,18 @@ import Chisel._
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
+import freechips.rocketchip.config.Parameters
+import freechips.rocketchip.rocket
 
 class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
+  with freechips.rocketchip.rocket.constants.MemoryOpConstants
 {
    val addr     = UInt(width = vaddrBitsExtended)
    val is_load  = Bool()
    val is_store = Bool()
    val tag      = UInt(width = 32)
    val data     = UInt(width = xLen)
+   val mem_cmd  = UInt(width = M_SZ)
 }
 
 class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
@@ -22,6 +26,7 @@ class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
 }
 
 class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
+   with freechips.rocketchip.rocket.constants.MemoryOpConstants
    with HasBoomCoreParameters {
 
    val io = IO(new BoomBundle()(p) {
@@ -130,9 +135,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 //   io.memreq.bits.data := memreq_data_reg
 //   io.memreq.bits.tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
 
-   // PC value of the jump_to_kernel instruction: 0x0080001c04
+   // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
-   when (io.currentPC(15, 0) === UInt(0x1c04)) {
+   when (io.currentPC(15, 0) === UInt(0x1bb0)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
    }
@@ -166,6 +171,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      regReqIdx := regReqIdx + 1.U
    }
 
+   // TODO(aryap): How to explicitly tie data from completing instructions to
+   // their sources? For now just assume they come back in order (fine since
+   // they're all the same instruction and they issue in separate bundles).
    when (fetchStart && !fetchRespDone && io.rob_valid) {
      registers(regRespIdx) := io.rob_data
      regRespIdx := regRespIdx + 1.U
@@ -207,29 +215,40 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    simple.io.start := simple_start
 
-   val memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
-   io.memreq.bits := memreq_queue.io.deq.bits
-   io.memreq.valid := memreq_queue.io.deq.valid
-   memreq_queue.io.deq.ready := !io.laq_full & !io.stq_full
+   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
+   val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
-   when (simple.io.mem_p0_addr.valid) {
-     memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
-     memreq_queue.io.enq.bits.is_load := true.B
-     memreq_queue.io.enq.bits.is_store := false.B
-     memreq_queue.io.enq.bits.tag := 10.U
-     memreq_queue.io.enq.bits.data := 0.U
-   } .otherwise {
-     memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
-     memreq_queue.io.enq.bits.is_load := false.B
-     memreq_queue.io.enq.bits.is_store := true.B
-     memreq_queue.io.enq.bits.tag := 20.U
-     memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
-   }
+   io.memreq.bits := memreq_arb.io.out.bits
+   io.memreq.valid := memreq_arb.io.out.valid
 
-   memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid | simple.io.mem_p1_addr.valid
-   simple.io.mem_p0_addr.ready := memreq_queue.io.enq.ready
-   simple.io.mem_p1_addr.ready := memreq_queue.io.enq.ready
-   simple.io.mem_p1_data_out.ready := memreq_queue.io.enq.ready
+   memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
+   memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
+   load_memreq_queue.io.deq.ready := !io.laq_full
+
+   memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
+   memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
+   store_memreq_queue.io.deq.ready := !io.stq_full
+
+   load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
+   load_memreq_queue.io.enq.bits.is_load := true.B
+   load_memreq_queue.io.enq.bits.is_store := false.B
+   load_memreq_queue.io.enq.bits.tag := 10.U
+   load_memreq_queue.io.enq.bits.data := 0.U
+   load_memreq_queue.io.enq.bits.mem_cmd := M_XRD
+
+   store_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
+   store_memreq_queue.io.enq.bits.is_load := false.B
+   store_memreq_queue.io.enq.bits.is_store := true.B
+   store_memreq_queue.io.enq.bits.tag := 20.U
+   store_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
+   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+
+   load_memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid
+   store_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid
+   simple.io.mem_p0_addr.ready := load_memreq_queue.io.enq.ready
+   simple.io.mem_p1_addr.ready := store_memreq_queue.io.enq.ready
+   simple.io.mem_p1_data_out.ready := store_memreq_queue.io.enq.ready
 
    simple.io.mem_p0_data_in.valid := (io.memresp.bits.tag === 10.U) & io.memresp.valid
    simple.io.mem_p0_data_in.bits := io.memresp.bits.data
