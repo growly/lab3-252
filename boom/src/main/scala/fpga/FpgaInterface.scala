@@ -167,7 +167,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      fetch_inst_reg := UInt(0)
      fetchReqDone := true.B
      // regReqIdx := UInt(0)
-   } .elsewhen (f
+   } .elsewhen (fet//chStart && !fetchReqDone) {
      fetch_valid_reg := true.B
      // Successively read CPU registers
      fetch_inst_reg := Cat(Cat(regFetchInstrTemplate1, archRegsRequired(regReqIdx)),
