@@ -5,14 +5,18 @@ import Chisel._
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
+import freechips.rocketchip.config.Parameters
+import freechips.rocketchip.rocket
 
 class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
+  with freechips.rocketchip.rocket.constants.MemoryOpConstants
 {
   val addr     = UInt(width = vaddrBitsExtended)
   val is_load  = Bool()
   val is_store = Bool()
   val tag      = UInt(width = 32)
   val data     = UInt(width = xLen)
+  val mem_cmd  = UInt(width = M_SZ)
 }
 
 class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
@@ -22,6 +26,7 @@ class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
 }
 
 class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
+  with freechips.rocketchip.rocket.constants.MemoryOpConstants
   with HasBoomCoreParameters {
 
   val io = IO(new BoomBundle()(p) {
@@ -127,9 +132,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 //   io.memreq.bits.data := memreq_data_reg
 //   io.memreq.bits.tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
 
-   // PC value of the jump_to_kernel instruction: 0x0080001c04
+   // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
-   when (io.currentPC(15, 0) === UInt(0x1c04)) {
+   when (io.currentPC(15, 0) === UInt(0x1bb0)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
    }
@@ -309,7 +314,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    val memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
    io.memreq.bits := memreq_queue.io.deq.bits
-   io.memreq.valid := memreq_queue.io.deq.valid
+   io.memreq.valid := memreq_queue.io.deq.valid & memreq_queue.io.deq.ready
    memreq_queue.io.deq.ready := !io.laq_full & !io.stq_full
 
    when (simple.io.mem_p0_addr.valid) {
@@ -318,12 +323,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_queue.io.enq.bits.is_store := false.B
      memreq_queue.io.enq.bits.tag := 10.U
      memreq_queue.io.enq.bits.data := 0.U
+     memreq_queue.io.enq.bits.mem_cmd := M_XRD
    } .otherwise {
      memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
      memreq_queue.io.enq.bits.is_load := false.B
      memreq_queue.io.enq.bits.is_store := true.B
      memreq_queue.io.enq.bits.tag := 20.U
      memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
+     memreq_queue.io.enq.bits.mem_cmd := M_XWR
    }
 
    memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid | simple.io.mem_p1_addr.valid
@@ -347,7 +354,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
-           io.memresp.valid=%d
+           io.memresp.valid=%d,
+           memreq_queue.io.enq.valid=%d,
+           memreq_queue.io.enq.ready=%d,
+           simple.io.mem_p0_addr.valid=%d,
+           simple.io.mem_p1_addr.valid=%d,
+           memreq_queue.io.deq.valid=%d,
+           memreq_queue.io.deq.ready=%d,
+           io.laq_full=%d, io.stq_full=%d
      """,
      io.runnable, stallCnt,
      io.fetch_inst, io.fetch_valid,
@@ -358,7 +372,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,
-     io.memresp.valid
+     io.memresp.valid,
+	   memreq_queue.io.enq.valid,
+	   memreq_queue.io.enq.ready,
+	   simple.io.mem_p0_addr.valid,
+	   simple.io.mem_p1_addr.valid,
+     memreq_queue.io.deq.valid,
+     memreq_queue.io.deq.ready,
+     io.laq_full, io.stq_full
    )
    printf("\n")
 
