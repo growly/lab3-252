@@ -332,6 +332,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // enqueued to the FetchBuffer
    fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
    fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
+   fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready
 
    // TAN: Here we assign commit signals to the FPGA.
    // This should be used for getting data from register file.

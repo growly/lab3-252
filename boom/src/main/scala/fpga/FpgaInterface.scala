@@ -33,6 +33,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
     val fetch_inst      = UInt(OUTPUT, xLen)
     val fetch_valid     = Bool(OUTPUT)
+    val fetch_ready     = Bool(INPUT)
 
     val rob_valid       = Bool(INPUT)
     val rob_data        = UInt(INPUT, xLen)
@@ -64,10 +65,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
   })
 
    // We want to successively repalce 'src1' in the ADD instruction:
-   //  funct7  src2  src1  fn3 rd    opcode
-   // "b0000000_00000_00000_000_00000_0110011"
-   val regFetchInstrTemplate1 = "b0000000_00000".U
-   val regFetchInstrTemplate0 = "b000_00000_0110011".U
+   //  imm           src1  fn3 rd    opcode
+   // "b000000000000_yyyyy_00000_000_00000_0110011"
+   val regFetchInstrTemplate1 = "b000000000000".U(12.W)
+   val regFetchInstrTemplate0 = "b000_00000_0010011".U(15.W)
+
+   // Hardcoded by user logic.
+   val numRegisters = 5;
+   val regAddrWidth = 5;
 
    val archRegsRequired = Reg(Vec(numRegisters, UInt(regAddrWidth.W)))
    archRegsRequired(0) := 2.U    // a0
@@ -89,19 +94,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val regReqIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
    val regRespIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
 
-   val mem_read_reg_insts = Mem(5, UInt(32.W))
-   mem_read_reg_insts(0) := UInt(0x00060633) // add a2, a2, x0
-   mem_read_reg_insts(1) := UInt(0x000686b3) // add a3, a3, x0
-   mem_read_reg_insts(2) := UInt(0x00070733) // add a4, a4, x0
-   mem_read_reg_insts(3) := UInt(0x000787b3) // add a5, a5, x0
-   mem_read_reg_insts(4) := UInt(0x00080833) // add a6, a6, x0
-
-
    val stallCnt = RegInit(0.U(32.W))
    val runnable_reg = RegInit(false.B)
    val fetch_inst_reg = RegInit(0.U(xLen.W))
    val fetch_valid_reg = RegInit(false.B)
-   val sum = RegInit(0.U(32.W))
    val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
    val memreq_store_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
    val memreq_load_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
@@ -167,27 +163,24 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      fetch_inst_reg := UInt(0)
      fetchReqDone := true.B
      // regReqIdx := UInt(0)
-   } .elsewhen (fet//chStart && !fetchReqDone) {
+   } .elsewhen (fetchStart && !fetchReqDone && io.fetch_ready) {
      fetch_valid_reg := true.B
-     // Successively read CPU registers
-     fetch_inst_reg := Cat(Cat(regFetchInstrTemplate1, archRegsRequired(regReqIdx)),
-                           regFetchInstrTemplate0)
+     // Successively read CPU registers using an addi instruction.
+     fetch_inst_reg := Cat(
+       regFetchInstrTemplate1,
+       Cat(archRegsRequired(regReqIdx), regFetchInstrTemplate0))
      regReqIdx := regReqIdx + 1.U
    }
 
-   
-
    when (fetchStart && !fetchRespDone && io.rob_valid) {
-     register(regRespIdx) := io.rob_data
-     //sum := sum + io.rob_data
+     registers(regRespIdx) := io.rob_data
      regRespIdx := regRespIdx + 1.U
    }
 
-   // All instructions are committed
+   // All register read instructions have returned values.
    when (regRespIdx === numRegisters.U) {
-     fetchRespDone := false.B
+     fetchRespDone := true.B
      fetchStart := false.B
-     // regRespIdx := UInt(0)
    }
 
    // Send memory store request at cycle 50
@@ -235,12 +228,22 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      runnable_reg := false.B
    }
 
+   // Once the register fetch is done, the user logic can start.
+   val sum = RegInit(0.U(32.W))
+   val sumIdx = Reg(UInt(log2Up(numRegisters).W), 0.U)
+   when (fetchRespDone) {
+     when (sumIdx < numRegisters.U) {
+       sum := sum + registers(sumIdx)
+       sumIdx := sumIdx + 1.U
+     }
+   }
+
    assert (!(io.memreq.bits.is_load && io.memreq.bits.is_store),
      "Error! Both load and store are active!")
 
    printf("\n")
-   printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
-           fetchStart: %d, fetchReqDone: %d,
+   printf("""[FPGA]... runnable: %d, stallCnt: %d, regReqIdx: %d, regRespIdx: %d, fetchStart: %d,
+           fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
            rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d,
            is_load: %d, is_store: %d,
            memreq_valid: %d, memreq_addr: 0x%x,
@@ -249,8 +252,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_tag: %d, memresp_tag: %d,
            memreq_store_addr_reg=0x%x, memreq_load_addr_reg=0x%x,
            store_en=%d, load_en=%d""",
-     io.runnable, stallCnt, cnt0, cnt1,
-     fetchStart, fetchReqDone,
+     io.runnable, stallCnt, regReqIdx, regRespIdx, fetchStart,
+     fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
      io.rob_valid, io.rob_data, io.currentPC, sum,
      io.memreq.bits.is_load, io.memreq.bits.is_store,
      io.memreq.valid, io.memreq.bits.addr,
@@ -352,4 +355,4 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
 }
 
-// vim: ts=3 expandtab softtabstop=3
+// vim: ts=8 expandtab softtabstop=3 shiftwidth=3
