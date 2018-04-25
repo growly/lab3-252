@@ -8,61 +8,48 @@ import freechips.rocketchip.util._
 
 class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
 {
-  val addr     = UInt(width = vaddrBitsExtended)
-  val is_load  = Bool()
-  val is_store = Bool()
-  val tag      = UInt(width = 32)
-  val data     = UInt(width = xLen)
+   val addr     = UInt(width = vaddrBitsExtended)
+   val is_load  = Bool()
+   val is_store = Bool()
+   val tag      = UInt(width = 32)
+   val data     = UInt(width = xLen)
 }
 
 class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
 {
-  val tag      = UInt(width = 32)
-  val data     = UInt(width = xLen)
+   val tag      = UInt(width = 32)
+   val data     = UInt(width = xLen)
 }
 
 class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
-  with HasBoomCoreParameters {
+   with HasBoomCoreParameters {
 
-  val io = IO(new BoomBundle()(p) {
-    val currentPC       = UInt(INPUT, vaddrBitsExtended)
+   val io = IO(new BoomBundle()(p) {
+      val currentPC       = UInt(INPUT, vaddrBitsExtended)
 
-    // High when this interface can replace an instruction sequence starting
-    // at the given PC.
-    val runnable        = Bool(OUTPUT)
+      // High when this interface can replace an instruction sequence starting
+      // at the given PC.
+      val runnable        = Bool(OUTPUT)
 
-    val fetch_inst      = UInt(OUTPUT, xLen)
-    val fetch_valid     = Bool(OUTPUT)
-    val fetch_ready     = Bool(INPUT)
+      val fetch_inst      = UInt(OUTPUT, xLen)
+      val fetch_valid     = Bool(OUTPUT)
+      val fetch_ready     = Bool(INPUT)
 
-    val rob_valid       = Bool(INPUT)
-    val rob_data        = UInt(INPUT, xLen)
+      val rob_valid       = Bool(INPUT)
+      val rob_data        = UInt(INPUT, xLen)
 
-    val laq_full        = Bool(INPUT)
-    val stq_full        = Bool(INPUT)
+      val laq_full        = Bool(INPUT)
+      val stq_full        = Bool(INPUT)
 
-    val memreq          = new DecoupledIO(new FpgaMemReq())
-    val memresp         = new DecoupledIO(new FpgaMemResp()).flip()
+      val memreq          = new DecoupledIO(new FpgaMemReq())
+      val memresp         = new DecoupledIO(new FpgaMemResp()).flip()
 
-    // The number of bytes of instructions that can be skipped by activating
-    // this module.
-    //val reach         = Output(UInt(addrWidth.W))
+      // High when the backing logic has finished computation.
+      //val done          = Output(Bool())
 
-    // High when the backing logic has finished computation.
-    //val done          = Output(Bool())
-
-    // High when the module should start copying data in.
-    //val start         = Input(Bool())
-
-    // Register copy interface.
-    //val archRegAddr   = Output(UInt(regAddrWidth.W))
-    //val regData       = Input(UInt(xLen.W))
-    //val regCopyDone   = Output(Bool())
-
-    // This is just for temp debugging.
-    //val result        = Output(UInt(xLen.W))
-
-  })
+      // High when the module should start copying data in.
+      //val start         = Input(Bool())
+   })
 
    // We want to successively repalce 'src1' in the ADD instruction:
    //  imm           src1  fn3 rd    opcode
@@ -93,6 +80,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    val regReqIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
    val regRespIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
+
+   // Control the overall user logic state.
+   val userStart = RegInit(false.B)
+   val userDone = RegInit(false.B)
 
    val stallCnt = RegInit(0.U(32.W))
    val runnable_reg = RegInit(false.B)
@@ -179,8 +170,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // All register read instructions have returned values.
    when (regRespIdx === numRegisters.U) {
-     fetchRespDone := true.B
-     fetchStart := false.B
+      userStart := true.B
+      fetchRespDone := true.B
+      fetchStart := false.B
    }
 
    // Send memory store request at cycle 50
@@ -224,27 +216,35 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // stall for 150 cycles
    when (stallCnt === 150.U) {
-     stallCnt := 0.U
-     runnable_reg := false.B
+      stallCnt := 0.U
+      runnable_reg := false.B
    }
 
    // Once the register fetch is done, the user logic can start.
    val sum = RegInit(0.U(32.W))
    val sumIdx = Reg(UInt(log2Up(numRegisters).W), 0.U)
-   when (fetchRespDone) {
-     when (sumIdx < numRegisters.U) {
-       sum := sum + registers(sumIdx)
-       sumIdx := sumIdx + 1.U
-     }
+   when (userStart && !userDone) {
+      when (sumIdx < numRegisters.U) {
+         sum := sum + registers(sumIdx)
+         sumIdx := sumIdx + 1.U
+      } .elsewhen (sumIdx === numRegisters.U) {
+         userDone := true.B
+      }
    }
 
    assert (!(io.memreq.bits.is_load && io.memreq.bits.is_store),
      "Error! Both load and store are active!")
 
+   for (i <- 0 to numRegisters - 1) {
+     printf("REGISTER[%d]: ARCH:%d VALUE: %d\n", i.U, archRegsRequired(i.U), registers(i.U));
+   }
+
    printf("\n")
-   printf("""[FPGA]... runnable: %d, stallCnt: %d, regReqIdx: %d, regRespIdx: %d, fetchStart: %d,
-           fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
-           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d,
+   printf("""[FPGA]... runnable: %d, stallCnt: %d,
+           [REG FETCH] regReqIdx: %d, regRespIdx: %d, fetchStart: %d,
+           [REG FETCH] fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
+           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x,
+           [USER LOGIC] sum = %d, sumIdx: %d, userStart: %d, userDone: %d,
            is_load: %d, is_store: %d,
            memreq_valid: %d, memreq_addr: 0x%x,
            memresp_valid: %d, memresp_data: 0x%x,
@@ -252,9 +252,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_tag: %d, memresp_tag: %d,
            memreq_store_addr_reg=0x%x, memreq_load_addr_reg=0x%x,
            store_en=%d, load_en=%d""",
-     io.runnable, stallCnt, regReqIdx, regRespIdx, fetchStart,
+     io.runnable, stallCnt,
+     regReqIdx, regRespIdx, fetchStart,
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
-     io.rob_valid, io.rob_data, io.currentPC, sum,
+     io.rob_valid, io.rob_data, io.currentPC,
+     sum, sumIdx, userStart, userDone,
      io.memreq.bits.is_load, io.memreq.bits.is_store,
      io.memreq.valid, io.memreq.bits.addr,
      io.memresp.valid, io.memresp.bits.data,
