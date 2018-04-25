@@ -67,13 +67,13 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val numRegisters = 7;
 
    val archRegsRequired = Reg(Vec(numRegisters, UInt(regAddrWidth.W)))
-   archRegsRequired(0) := 0.U    // s0
-   archRegsRequired(1) := 1.U    // s1
-   archRegsRequired(2) := 2.U    // a0
-   archRegsRequired(3) := 3.U    // a1
-   archRegsRequired(4) := 4.U    // a2
-   archRegsRequired(5) := 5.U    // a3
-   archRegsRequired(6) := 6.U    // a4
+   archRegsRequired(0) := 0x0a.U    // a0 01010
+   archRegsRequired(1) := 0x0b.U    // a1 01011
+   archRegsRequired(2) := 0x0c.U    // a2 01100
+   archRegsRequired(3) := 0x0d.U    // a3 01101
+   archRegsRequired(4) := 0x0e.U    // a4 01110
+   archRegsRequired(5) := 0x0f.U    // a5 01111
+   archRegsRequired(6) := 0x10.U    // a6 10000
 
    val archRegsValid = RegInit(0.U(numRegisters.W))
    val archRegsDone = RegInit(0.U(numRegisters.W))
@@ -255,8 +255,16 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    //simple.io.mem_p1_data_out.valid := (io.memresp.bits.tag === 20.U) & io.memresp.valid
 
+   // stall for 200 cycles
+   // TODO(aryap): Remove, in favour of actual return instruction when done.
+   when (stallCnt === 1000.U) {
+     stallCnt := 0.U
+     runnable_reg := false.B
+   }
+
+   printf("\n")
    for (i <- 0 to numRegisters - 1) {
-     printf("[FPGA] REGISTER[%d]: ARCH:%d VALUE: %d\n", i.U, archRegsRequired(i.U), registers(i.U));
+     printf("[FPGA] REGISTER[%d]: ARCH:%d VALUE 0x%x\n", i.U, archRegsRequired(i.U), registers(i.U));
    }
 
    printf("\n")
