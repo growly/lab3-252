@@ -312,31 +312,40 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    simple.io.start := simple_start
 
-   val memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
-   io.memreq.bits := memreq_queue.io.deq.bits
-   io.memreq.valid := memreq_queue.io.deq.valid & memreq_queue.io.deq.ready
-   memreq_queue.io.deq.ready := !io.laq_full & !io.stq_full
+   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
+   val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
-   when (simple.io.mem_p0_addr.valid) {
-     memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
-     memreq_queue.io.enq.bits.is_load := true.B
-     memreq_queue.io.enq.bits.is_store := false.B
-     memreq_queue.io.enq.bits.tag := 10.U
-     memreq_queue.io.enq.bits.data := 0.U
-     memreq_queue.io.enq.bits.mem_cmd := M_XRD
-   } .otherwise {
-     memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
-     memreq_queue.io.enq.bits.is_load := false.B
-     memreq_queue.io.enq.bits.is_store := true.B
-     memreq_queue.io.enq.bits.tag := 20.U
-     memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
-     memreq_queue.io.enq.bits.mem_cmd := M_XWR
-   }
+   io.memreq.bits := memreq_arb.io.out.bits
+   io.memreq.valid := memreq_arb.io.out.valid
 
-   memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid | simple.io.mem_p1_addr.valid
-   simple.io.mem_p0_addr.ready := memreq_queue.io.enq.ready
-   simple.io.mem_p1_addr.ready := memreq_queue.io.enq.ready
-   simple.io.mem_p1_data_out.ready := memreq_queue.io.enq.ready
+   memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
+   memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
+   load_memreq_queue.io.deq.ready := !io.laq_full
+
+   memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
+   memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
+   store_memreq_queue.io.deq.ready := !io.stq_full
+
+   load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
+   load_memreq_queue.io.enq.bits.is_load := true.B
+   load_memreq_queue.io.enq.bits.is_store := false.B
+   load_memreq_queue.io.enq.bits.tag := 10.U
+   load_memreq_queue.io.enq.bits.data := 0.U
+   load_memreq_queue.io.enq.bits.mem_cmd := M_XRD
+
+   store_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
+   store_memreq_queue.io.enq.bits.is_load := false.B
+   store_memreq_queue.io.enq.bits.is_store := true.B
+   store_memreq_queue.io.enq.bits.tag := 20.U
+   store_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
+   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+
+   load_memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid
+   store_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid
+   simple.io.mem_p0_addr.ready := load_memreq_queue.io.enq.ready
+   simple.io.mem_p1_addr.ready := store_memreq_queue.io.enq.ready
+   simple.io.mem_p1_data_out.ready := store_memreq_queue.io.enq.ready
 
    simple.io.mem_p0_data_in.valid := (io.memresp.bits.tag === 10.U) & io.memresp.valid
    simple.io.mem_p0_data_in.bits := io.memresp.bits.data
@@ -355,12 +364,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
            io.memresp.valid=%d,
-           memreq_queue.io.enq.valid=%d,
-           memreq_queue.io.enq.ready=%d,
            simple.io.mem_p0_addr.valid=%d,
            simple.io.mem_p1_addr.valid=%d,
-           memreq_queue.io.deq.valid=%d,
-           memreq_queue.io.deq.ready=%d,
            io.laq_full=%d, io.stq_full=%d
      """,
      io.runnable, stallCnt,
@@ -373,12 +378,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,
      io.memresp.valid,
-	   memreq_queue.io.enq.valid,
-	   memreq_queue.io.enq.ready,
 	   simple.io.mem_p0_addr.valid,
 	   simple.io.mem_p1_addr.valid,
-     memreq_queue.io.deq.valid,
-     memreq_queue.io.deq.ready,
      io.laq_full, io.stq_full
    )
    printf("\n")
