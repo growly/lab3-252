@@ -80,6 +80,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
       val fpga_runnable     = Bool(INPUT)
       val fetch_from_fpga_valid = Bool(INPUT)
       val fetch_from_fpga_inst  = UInt(INPUT, 32)
+      val fetch_from_fpga_ready = Bool(OUTPUT)
    })
 
    val bchecker = Module (new BranchChecker(fetchWidth))
@@ -444,6 +445,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    fetch_bundle_from_fpga.pc := UInt(0) // dummy PC value
    fetch_bundle_from_fpga.insts(0) := io.fetch_from_fpga_inst
    fetch_bundle_from_fpga.mask := Bits(1)
+   io.fetch_from_fpga_ready := FetchBuffer.io.enq.ready
 
    // Fetch Buffer
    when (io.fpga_runnable) {
