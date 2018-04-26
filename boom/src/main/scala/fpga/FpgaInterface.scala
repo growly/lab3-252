@@ -215,20 +215,45 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    simple.io.start := simple_start
 
-   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
+   //val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
    val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
    val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
-   io.memreq.bits := memreq_arb.io.out.bits
-   io.memreq.valid := memreq_arb.io.out.valid
+   val mem_order = Reg(init=Vec.fill(2){Bool(false)})
+   // Reset mem_order when all memory transactions are fired
+   when (mem_order(0) && mem_order(1)) {
+     mem_order(0) := false.B
+     mem_order(1) := false.B
+   }
 
-   memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
-   memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
-   load_memreq_queue.io.deq.ready := !io.laq_full
+   val memreq_bits_reg = Reg(new FpgaMemReq())
+   val memreq_valid_reg = Reg(init=false.B)
+   when (load_memreq_queue.io.deq.valid && load_memreq_queue.io.deq.ready) {
+     mem_order(0) := true.B
+     memreq_bits_reg := load_memreq_queue.io.deq.bits
+     memreq_valid_reg := load_memreq_queue.io.deq.valid
+   }
+   .elsewhen (store_memreq_queue.io.deq.valid && store_memreq_queue.io.deq.ready) {
+     mem_order(1) := true.B
+     memreq_bits_reg := store_memreq_queue.io.deq.bits
+     memreq_valid_reg := store_memreq_queue.io.deq.valid
+   }
+   .otherwise {
+     memreq_valid_reg := false.B
+   }
+   //io.memreq.bits := memreq_arb.io.out.bits
+   //io.memreq.valid := memreq_arb.io.out.valid
 
-   memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
-   memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
-   store_memreq_queue.io.deq.ready := !io.stq_full
+   io.memreq.bits := memreq_bits_reg
+   io.memreq.valid := memreq_valid_reg
+
+   //memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
+   load_memreq_queue.io.deq.ready := !io.laq_full & !mem_order(0) & !mem_order(1)
+
+   //memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
+   store_memreq_queue.io.deq.ready := !io.stq_full & mem_order(0) & !mem_order(1)
 
    load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
    load_memreq_queue.io.enq.bits.is_load := true.B
@@ -277,7 +302,12 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
-           io.memresp.valid=%d""",
+           io.memresp.valid=%d,
+           simple.io.mem_p0_addr.valid=%d,
+           simple.io.mem_p1_addr.valid=%d,
+           io.laq_full=%d, io.stq_full=%d,
+           mem_order(0)=%d, mem_order(1)=%d
+     """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
@@ -289,7 +319,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,
-     io.memresp.valid
+     io.memresp.valid,
+     simple.io.mem_p0_addr.valid,
+     simple.io.mem_p1_addr.valid,
+     io.laq_full, io.stq_full,
+     mem_order(0), mem_order(1)
    )
    printf("\n")
 
