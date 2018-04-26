@@ -70,27 +70,27 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    archRegsRequired(5) := 0x0f.U    // a5 01111
    archRegsRequired(6) := 0x10.U    // a6 10000
 
-   val archRegsValid = RegInit(0.U(numRegisters.W))
-   val archRegsDone = RegInit(0.U(numRegisters.W))
+   val archRegsValid = Reg(init = UInt(0, numRegisters))
+   val archRegsDone = Reg(init = UInt(0, numRegisters))
 
    // Register data.
    val registers = Reg(Vec(numRegisters, UInt(xLen.W)))
 
-   val fetchStart = RegInit(false.B)
-   val fetchReqDone = RegInit(false.B)
-   val fetchRespDone = RegInit(false.B)
+   val fetchStart = Reg(init = false.B)
+   val fetchReqDone = Reg(init = false.B)
+   val fetchRespDone = Reg(init = false.B)
 
-   val regReqIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
-   val regRespIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
+   val regReqIdx = Reg(init = UInt(0, log2Up(numRegisters)))
+   val regRespIdx = Reg(init = UInt(0, log2Up(numRegisters)))
 
    // Control the overall user logic state.
-   val userStart = RegInit(false.B)
-   val userDone = RegInit(false.B)
+   val userStart = Reg(init = false.B)
+   val userDone = Reg(init = false.B)
 
-   val stallCnt = RegInit(0.U(32.W))
-   val runnable_reg = RegInit(false.B)
-   val fetch_inst_reg = RegInit(0.U(xLen.W))
-   val fetch_valid_reg = RegInit(false.B)
+   val stallCnt = Reg(init = UInt(0, 32))
+   val runnable_reg = Reg(init = false.B)
+   val fetch_inst_reg = Reg(init = UInt(0, xLen))
+   val fetch_valid_reg = Reg(init = false.B)
 
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
@@ -152,7 +152,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    simple.io.RegA5 := registers(5)
    simple.io.RegA6 := registers(6)
 
-   val simple_start = RegInit(false.B)
+   val simple_start = Reg(init = false.B)
 
    when (stallCnt === 100.U) {
      simple_start := true.B
