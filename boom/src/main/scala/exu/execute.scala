@@ -616,6 +616,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
                                     fpga_exe_resp_uop_ctrl_is_std_reg,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_std)
 
+   io.lsu_io.exe_resp.bits.uop.uopc := Mux(fpga_exe_resp_uop_is_load_reg, uopLD,
+                                         Mux(fpga_exe_resp_uop_is_store_reg, uopSTA,
+                                           maddrcalc.io.resp.bits.uop.is_load))
+
    io.lsu_io.exe_resp.bits.data := Mux(fpga_memreq_valid_reg,
                                     fpga_exe_resp_bits_data_reg,
                                     maddrcalc.io.resp.bits.data)
