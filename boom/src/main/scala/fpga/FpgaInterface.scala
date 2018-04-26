@@ -152,11 +152,18 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    simple.io.RegA5 := registers(5)
    simple.io.RegA6 := registers(6)
 
+   val fetchRespDone_delayed = Reg(init = false.B)
+   fetchRespDone_delayed := fetchRespDone
+   
    val simple_start = Reg(init = false.B)
 
    // start executing kernel after we finish with fetching registers
-   when (fetchRespDone) {
+   when (!fetchRespDone_delayed && fetchRespDone) {
      simple_start := true.B
+   }
+
+   when (simple_start) {
+     simple_start := false.B
    }
 
    simple.io.start := simple_start
