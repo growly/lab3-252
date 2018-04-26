@@ -154,7 +154,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    val simple_start = Reg(init = false.B)
 
-   when (stallCnt === 100.U) {
+   // start executing kernel after we finish with fetching registers
+   when (fetchRespDone) {
      simple_start := true.B
    }
 
