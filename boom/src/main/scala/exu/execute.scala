@@ -550,19 +550,24 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    // enqueue addresses,st-data at the end of Execute
    io.lsu_io.exe_resp <> maddrcalc.io.resp
 
-   val fpga_memreq_valid_reg = RegInit(false.B)
+   // TAN: we override the Chisel auto connection above for the following signals
+   // We will delay the memreq from FPGA one cycle to match the memreq behaviour that
+   // BOOM does
 
-   val fpga_exe_resp_addr_reg = RegInit(0.U)
-   val fpga_exe_resp_uop_is_load_reg = RegInit(false.B)
-   val fpga_exe_resp_uop_ctrl_is_load_reg = RegInit(false.B)
-   val fpga_exe_resp_uop_is_store_reg = RegInit(false.B)
-   val fpga_exe_resp_uop_ctrl_is_sta_reg = RegInit(false.B)
-   val fpga_exe_resp_uop_ctrl_is_std_reg = RegInit(false.B)
-   val fpga_exe_resp_uop_mem_cmd_reg = RegInit(0.U)
-   val fpga_exe_resp_bits_data_reg = RegInit(0.U)
-   val fpga_exe_resp_bits_uop_ldq_idx_reg = RegInit(0.U)
-   val fpga_exe_resp_bits_uop_stq_idx_reg = RegInit(0.U)
-   val fpga_exe_resp_bits_uop_pc_reg = RegInit(0.U)
+   val fpga_memreq_valid_reg = Reg(init = false.B)
+
+   // TODO(TAN): bundle this mess!
+   val fpga_exe_resp_addr_reg = Reg(init = UInt(0, vaddrBitsExtended))
+   val fpga_exe_resp_uop_is_load_reg = Reg(init = false.B)
+   val fpga_exe_resp_uop_ctrl_is_load_reg = Reg(init = false.B)
+   val fpga_exe_resp_uop_is_store_reg = Reg(init = false.B)
+   val fpga_exe_resp_uop_ctrl_is_sta_reg = Reg(init = false.B)
+   val fpga_exe_resp_uop_ctrl_is_std_reg = Reg(init = false.B)
+   val fpga_exe_resp_uop_mem_cmd_reg = Reg(init = UInt(0, M_SZ))
+   val fpga_exe_resp_bits_data_reg = Reg(init = UInt(0, xLen))
+   val fpga_exe_resp_bits_uop_ldq_idx_reg = Reg(init = UInt(0, MEM_ADDR_SZ))
+   val fpga_exe_resp_bits_uop_stq_idx_reg = Reg(init = UInt(0, MEM_ADDR_SZ))
+   val fpga_exe_resp_bits_uop_pc_reg = Reg(init = UInt(0, vaddrBitsExtended))
 
    fpga_memreq_valid_reg := io.fpga_memreq_valid
 
@@ -578,15 +583,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    fpga_exe_resp_bits_uop_stq_idx_reg := io.fpga_stq_idx
    fpga_exe_resp_bits_uop_pc_reg := io.fpga_memreq_tag
 
-   // TAN: we override the Chisel auto connection above for the following signals
-   // We will delay the memreq from FPGA one cycle to match the memreq behaviour that
-   // BOOM does
    io.lsu_io.exe_resp.valid := fpga_memreq_valid_reg | maddrcalc.io.resp.valid
    io.lsu_io.exe_resp.bits.addr := Mux(fpga_memreq_valid_reg,
                                     fpga_exe_resp_addr_reg,
                                     maddrcalc.io.resp.bits.addr)
-
-
 
    // TAN: Note: uop.is_load and uop.ctrl.is_load are entirely different.
    // The former concerns the instruction type (set in Decode stage),
@@ -615,6 +615,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.ctrl.is_std := Mux(fpga_memreq_valid_reg,
                                     fpga_exe_resp_uop_ctrl_is_std_reg,
                                     maddrcalc.io.resp.bits.uop.ctrl.is_std)
+
+   io.lsu_io.exe_resp.bits.uop.uopc := Mux(fpga_exe_resp_uop_is_load_reg, uopLD,
+                                         Mux(fpga_exe_resp_uop_is_store_reg, uopSTA,
+                                           maddrcalc.io.resp.bits.uop.is_load))
 
    io.lsu_io.exe_resp.bits.data := Mux(fpga_memreq_valid_reg,
                                     fpga_exe_resp_bits_data_reg,

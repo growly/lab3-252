@@ -78,8 +78,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    archRegsRequired(5) := 0x0f.U    // a5 01111
    archRegsRequired(6) := 0x10.U    // a6 10000
 
-   val archRegsValid = RegInit(0.U(numRegisters.W))
-   val archRegsDone = RegInit(0.U(numRegisters.W))
+   val archRegsValid = Reg(init = UInt(0, numRegisters))
+   val archRegsDone = Reg(init = UInt(0, numRegisters))
 
    // The return instruction from the function we're replacing.
    //
@@ -120,10 +120,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val fetchStart = RegInit(false.B)
    val fetchReqDone = RegInit(false.B)
    val fetchRespDone = RegInit(false.B)
-   val fetch_pc = RegInit(0.U(vaddrBitsExtended.W))
+   val fetch_pc_reg = RegInit(0.U(vaddrBitsExtended.W))
 
-   val regReqIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
-   val regRespIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
+   val regReqIdx = Reg(init = UInt(0, log2Up(numRegisters)))
+   val regRespIdx = Reg(init = UInt(0, log2Up(numRegisters)))
 
    // Control the overall user logic state.
    val userStart = RegInit(false.B)
@@ -134,43 +134,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val fetch_inst_reg = RegInit(0.U(xLen.W))
    val fetch_valid_reg = RegInit(false.B)
 
-//   val memreq_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
-//   val memreq_store_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
-//   val memreq_load_addr_reg = RegInit(0.U(vaddrBitsExtended.W))
-//   val memreq_is_load_reg = RegInit(false.B)
-//   val memreq_is_store_reg = RegInit(false.B)
-//   val memreq_data_reg = RegInit(0.U(xLen.W))
-//   val memreq_tag_reg = RegInit(0.U(32.W))
-//   val memreq_store_tag_reg = RegInit(0.U(32.W))
-//   val memreq_load_tag_reg = RegInit(0.U(32.W))
-//   // 0x8001fe28 exceeds UInt size ... have to break it down as follows
-//   val test1 = Reg(UInt(vaddrBitsExtended.W))
-//   val test2 = Reg(UInt(vaddrBitsExtended.W))
-//   val test3 = RegInit(0x2345.U(xLen.W))
-//   test1 := 0x8.U << 28
-//   test2 := test1 + 0x1fe28.U
-//
-//   val start_memreq_load = RegInit(false.B)
-//   val start_memreq_store = RegInit(false.B)
-//   val memreq_load_cnt = RegInit(0.U(32.W))
-//   val memreq_store_cnt = RegInit(0.U(32.W))
-
-//   val toggle = stallCnt(0)
-//   val load_en = Mux(!memreq_is_load_reg, start_memreq_load,
-//                   Mux(!memreq_is_load_reg || !memreq_is_store_reg, memreq_is_load_reg,
-//                     toggle === 1.U))
-//   val store_en = Mux(!memreq_is_store_reg, start_memreq_store,
-//                   Mux(!memreq_is_load_reg || !memreq_is_store_reg, memreq_is_store_reg,
-//                     toggle === 0.U))
-//
-//   io.memreq.valid := (memreq_is_store_reg & !io.stq_full) |
-//                      (memreq_is_load_reg & !io.laq_full)
-//
-//   io.memreq.bits.addr := Mux(store_en, memreq_store_addr_reg, memreq_load_addr_reg)
-//   io.memreq.bits.is_load := memreq_is_load_reg & !io.laq_full & load_en
-//   io.memreq.bits.is_store := memreq_is_store_reg & !io.stq_full & store_en
-//   io.memreq.bits.data := memreq_data_reg
-//   io.memreq.bits.tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
    val resetInternal = RegInit(false.B)
 
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
@@ -179,7 +142,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
-     fetch_pc := io.currentPC
+     fetch_pc_reg := io.currentPC
    }
 
    when (runnable_reg) {
@@ -189,6 +152,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.runnable := runnable_reg
    io.fetch_inst := fetch_inst_reg
    io.fetch_valid := fetch_valid_reg
+   io.fetch_pc := fetch_pc_reg
 
    // Send instruction to BOOM at cycle 30
    // TODO(aryap): This should be on the start signal from CPU
@@ -279,27 +243,58 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       userDone := simple.io.done
    }
 
-   // TODO(aryap): This should start as soon as the register copy finishes.
-   //when (stallCnt === 100.U) {
-   //  userStart := true.B
-   //}
+   val userStart_delayed = RegInit(false.B)
+   userStart_delayed := userStart
 
-   simple.io.start := userStart
+   val fetchRespDone_delayed = Reg(init = false.B)
+   fetchRespDone_delayed := fetchRespDone
 
-   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
+   // start executing kernel after we finish with fetching registers
+   when (!userStart_delayed && userStart) {
+      simple.io.start := true.B
+   }.otherwise {
+      simple.io.start := false.B
+   }
+
+   //val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
    val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
    val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
-   io.memreq.bits := memreq_arb.io.out.bits
-   io.memreq.valid := memreq_arb.io.out.valid
+   val mem_order = Reg(init=Vec.fill(2){Bool(false)})
+   // Reset mem_order when all memory transactions are fired
+   when (mem_order(0) && mem_order(1)) {
+     mem_order(0) := false.B
+     mem_order(1) := false.B
+   }
 
-   memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
-   memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
-   load_memreq_queue.io.deq.ready := !io.laq_full
+   val memreq_bits_reg = Reg(new FpgaMemReq())
+   val memreq_valid_reg = Reg(init=false.B)
+   when (load_memreq_queue.io.deq.valid && load_memreq_queue.io.deq.ready) {
+     mem_order(0) := true.B
+     memreq_bits_reg := load_memreq_queue.io.deq.bits
+     memreq_valid_reg := load_memreq_queue.io.deq.valid
+   }
+   .elsewhen (store_memreq_queue.io.deq.valid && store_memreq_queue.io.deq.ready) {
+     mem_order(1) := true.B
+     memreq_bits_reg := store_memreq_queue.io.deq.bits
+     memreq_valid_reg := store_memreq_queue.io.deq.valid
+   }
+   .otherwise {
+     memreq_valid_reg := false.B
+   }
+   //io.memreq.bits := memreq_arb.io.out.bits
+   //io.memreq.valid := memreq_arb.io.out.valid
 
-   memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
-   memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
-   store_memreq_queue.io.deq.ready := !io.stq_full
+   io.memreq.bits := memreq_bits_reg
+   io.memreq.valid := memreq_valid_reg
+
+   //memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
+   load_memreq_queue.io.deq.ready := !io.laq_full & !mem_order(0) & !mem_order(1)
+
+   //memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
+   store_memreq_queue.io.deq.ready := !io.stq_full & mem_order(0) & !mem_order(1)
 
    load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
    load_memreq_queue.io.enq.bits.is_load := true.B
@@ -340,7 +335,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    printf("""[FPGA]... runnable: %d, stallCnt: %d,
            [REG FETCH] regReqIdx: %d, regRespIdx: %d, fetchStart: %d,
            [REG FETCH] fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
-           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x,
+           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, fetch_pc_reg: 0x%x,
            [USER LOGIC] userStart: %d, userDone: %d,
            [SIMPLE]simple.io.start=%d, simple.io.done=%d,
            [RETURN] returnIdx=%d, internalReset=%d,
@@ -348,11 +343,16 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
-           io.memresp.valid=%d""",
+           io.memresp.valid=%d,
+           simple.io.mem_p0_addr.valid=%d,
+           simple.io.mem_p1_addr.valid=%d,
+           io.laq_full=%d, io.stq_full=%d,
+           mem_order(0)=%d, mem_order(1)=%d
+     """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
-     io.rob_valid, io.rob_data, io.currentPC,
+     io.rob_valid, io.rob_data, io.currentPC, fetch_pc_reg,
      userStart, userDone,
      simple.io.start, simple.io.done,
      returnIdx, internalReset,
@@ -360,122 +360,13 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,
-     io.memresp.valid
+     io.memresp.valid,
+     simple.io.mem_p0_addr.valid,
+     simple.io.mem_p1_addr.valid,
+     io.laq_full, io.stq_full,
+     mem_order(0), mem_order(1)
    )
    printf("\n")
-
-//   // Send memory store request at cycle 50
-//   when (stallCnt === 50.U) {
-//     start_memreq_store := true.B
-//   }
-//
-//   // Send memory load request at cycle 55
-//   when (stallCnt === 55.U) {
-//     start_memreq_load := true.B
-//   }
-//
-//   // Stop after 10 memory requests
-//   when (memreq_store_cnt === 10.U && !io.stq_full && store_en) {
-//     start_memreq_store := false.B
-//     memreq_store_cnt := 0.U
-//     memreq_is_store_reg := false.B
-//     memreq_store_tag_reg := 0.U
-//   }
-//   .elsewhen (start_memreq_store && !io.stq_full && store_en) {
-//     memreq_store_cnt := memreq_store_cnt + 1.U
-//     memreq_data_reg := test3 + memreq_store_cnt
-//     memreq_is_store_reg := true.B
-//     memreq_store_tag_reg := memreq_store_cnt + 10.U
-//     memreq_store_addr_reg := test2 + (memreq_store_cnt << 2)
-//   }
-//
-//   // Stop after 10 memory requests
-//   when (memreq_load_cnt === 10.U && !io.laq_full && load_en) {
-//     start_memreq_load := false.B
-//     memreq_load_cnt := 0.U
-//     memreq_is_load_reg := false.B
-//     memreq_load_tag_reg := 0.U
-//   }
-//   .elsewhen (start_memreq_load && !io.laq_full && load_en) {
-//     memreq_load_cnt := memreq_load_cnt + 1.U
-//     memreq_is_load_reg := true.B
-//     memreq_load_tag_reg := memreq_load_cnt + 30.U
-//     memreq_load_addr_reg := test2 + (memreq_load_cnt << 2)
-//   }
-//
-//   // stall for 150 cycles
-//   when (stallCnt === 150.U) {
-//     stallCnt := 0.U
-//     runnable_reg := false.B
-//   }
-//
-//   assert (!(io.memreq.bits.is_load && io.memreq.bits.is_store),
-//     "Error! Both load and store are active!")
-//
-//   printf("\n")
-//   printf("""[FPGA]... runnable: %d, stallCnt: %d, cnt0: %d, cnt1: %d,
-//           fetch_start: %d, fetch_done: %d,
-//           rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, sum = %d,
-//           is_load: %d, is_store: %d,
-//           memreq_valid: %d, memreq_addr: 0x%x,
-//           memresp_valid: %d, memresp_data: 0x%x,
-//           memreq_store_cnt: %d, memreq_loadcnt: %d, laq_full: %d, std_full: %d,
-//           memreq_tag: %d, memresp_tag: %d,
-//           memreq_store_addr_reg=0x%x, memreq_load_addr_reg=0x%x,
-//           store_en=%d, load_en=%d""",
-//     io.runnable, stallCnt, cnt0, cnt1,
-//     fetch_start, fetch_done,
-//     io.rob_valid, io.rob_data, io.currentPC, sum,
-//     io.memreq.bits.is_load, io.memreq.bits.is_store,
-//     io.memreq.valid, io.memreq.bits.addr,
-//     io.memresp.valid, io.memresp.bits.data,
-//     memreq_store_cnt, memreq_load_cnt, io.laq_full, io.stq_full,
-//     io.memreq.bits.tag, io.memresp.bits.tag,
-//     memreq_store_addr_reg, memreq_load_addr_reg,
-//     store_en, load_en
-//   )
-//   printf("\n")
-
-//  //printf(p"FpgaInterface with xLen: $xLen addrWidth: $addrWidth regAddrWidth: $regAddrWidth")
-//
-//  val sPCWait :: sStartWait :: sRegCopy :: sRunning :: sDone :: sError :: Nil = Enum(6)
-//  val state = Reg(init = sPCWait)
-//
-//  io.done := RegInit(false.B)
-//  io.runnable := io.currentPC === ourPC
-//  io.regCopyDone := RegInit(false.B)
-//
-//  // TODO(aryap): We need to be careful with the contract we present to the CPU
-//  // core about when signals are valid and what they mean.
-//  switch (state) {
-//    is (sPCWait) {
-//      when (io.runnable) {
-//        state := sStartWait
-//      }
-//    }
-//    is (sStartWait) {
-//      when (io.start) {
-//        state := sRegCopy
-//      } .elsewhen (io.currentPC =/= ourPC) {
-//        state := sPCWait
-//      }
-//    }
-//    is (sRegCopy) {
-//      when (io.regCopyDone) {
-//        state := sRunning
-//      }
-//    }
-//    is (sRunning) {
-//      when (io.done) {
-//        state := sDone
-//      }
-//    }
-//    is (sDone) {
-//      // TODO(aryap): How to reset?
-//    }
-//    is (sError) {
-//    }
-//  }
 
 }
 
