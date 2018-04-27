@@ -326,12 +326,14 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // (2) PC is a virtual memory address
    fpga.io.currentPC := io.imem.resp.bits.pc
    fetch_unit.io.fpga_runnable := fpga.io.runnable
+   //fetch_unit.io.fpga_done = fpga.io.done
 
    // TAN: FPGA will send an instruction (side-effect free) to the CPU
    // in order to read the CPU registers. The instruction will be
    // enqueued to the FetchBuffer
    fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
    fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
+   fetch_unit.io.fetch_from_fpga_pc := fpga.io.fetch_pc
    fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready
 
    // TAN: Here we assign commit signals to the FPGA.

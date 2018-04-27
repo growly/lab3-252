@@ -30,31 +30,34 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    with HasBoomCoreParameters {
 
    val io = IO(new BoomBundle()(p) {
-      val currentPC       = UInt(INPUT, vaddrBitsExtended)
+      val currentPC        = UInt(INPUT, vaddrBitsExtended)
 
       // High when this interface can replace an instruction sequence starting
       // at the given PC.
-      val runnable        = Bool(OUTPUT)
+      val runnable         = Bool(OUTPUT)
 
-      val fetch_inst      = UInt(OUTPUT, xLen)
-      val fetch_valid     = Bool(OUTPUT)
-      val fetch_ready     = Bool(INPUT)
+      val fetch_inst       = UInt(OUTPUT, xLen)
+      val fetch_pc         = UInt(OUTPUT, vaddrBitsExtended)
+      val fetch_valid      = Bool(OUTPUT)
+      val fetch_ready      = Bool(INPUT)
 
-      val rob_valid       = Bool(INPUT)
-      val rob_data        = UInt(INPUT, xLen)
+      val rob_valid        = Bool(INPUT)
+      val rob_data         = UInt(INPUT, xLen)
 
-      val laq_full        = Bool(INPUT)
-      val stq_full        = Bool(INPUT)
+      val laq_full         = Bool(INPUT)
+      val stq_full         = Bool(INPUT)
 
-      val memreq          = new DecoupledIO(new FpgaMemReq())
-      val memresp         = new DecoupledIO(new FpgaMemResp()).flip()
+      val memreq           = new DecoupledIO(new FpgaMemReq())
+      val memresp          = new DecoupledIO(new FpgaMemResp()).flip()
 
       // High when the backing logic has finished computation.
-      //val done          = Output(Bool())
+      val done             = Bool(OUTPUT)
 
       // High when the module should start copying data in.
-      //val start         = Input(Bool())
+      //val start            = Bool(INPUT)
    })
+
+   val internalReset = RegInit(false.B)
 
    // We want to successively repalce 'src1' in the ADD instruction:
    //  imm           src1  fn3 rd    opcode
@@ -78,19 +81,53 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val archRegsValid = RegInit(0.U(numRegisters.W))
    val archRegsDone = RegInit(0.U(numRegisters.W))
 
+   // The return instruction from the function we're replacing.
+   //
+   // TODO(aryap): It might be more useful to have the return method (an offset
+   // to jump in the PC, an explicit virtual/physical address, or this)
+   // configurable by the user logic.
+   //
+   // 0x00008067 is from simple.riscv.dump and decodes to
+   //   000000000000 00001 000 00000 1100111
+   //   imm          rs1   fn3 rd    opcode  
+   //   0            x1        x0    jalr     (standard calling convention)
+   //
+   // The return address is set up by the jump to the function we're replacing,
+   // e.g.
+   // 0xd08ff0ef
+   //   11010000100011111111 00001 1101111
+   //   imm                  rd    opcode
+   //                        x1    jal
+   // JAL stores the address of the instruction following the jump in x1, per
+   // the standard calling convention.
+   //
+   // TODO(aryap): *It also* places this address on the Return Address Stack in
+   // some cases, which we have to replicate. And we should zero the JAL out
+   // into a no-op.
+   //
+   // Can we fake it with:
+   //   00000000000000000000   00001 0010111   auipc ra, 0     // ra = x1
+   //   000000000100 00001 000 00001 0010011   addi ra, ra, 4
+   val numReturnInstrs = 3
+   val returnInstrs = Reg(Vec(numReturnInstrs, UInt(xLen.W)))
+   returnInstrs(0) := "h00000097".U
+   returnInstrs(1) := "h00408093".U
+   returnInstrs(2) := "h00008067".U
+
    // Register data.
    val registers = Reg(Vec(numRegisters, UInt(xLen.W)))
 
    val fetchStart = RegInit(false.B)
    val fetchReqDone = RegInit(false.B)
    val fetchRespDone = RegInit(false.B)
+   val fetch_pc = RegInit(0.U(vaddrBitsExtended.W))
 
    val regReqIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
    val regRespIdx = RegInit(UInt(log2Up(numRegisters).W), 0.U)
 
    // Control the overall user logic state.
    val userStart = RegInit(false.B)
-   val userDone = RegInit(false.B)
+   val userDone = RegInit(false.B) // Wire(Bool())
 
    val stallCnt = RegInit(0.U(32.W))
    val runnable_reg = RegInit(false.B)
@@ -134,12 +171,15 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 //   io.memreq.bits.is_store := memreq_is_store_reg & !io.stq_full & store_en
 //   io.memreq.bits.data := memreq_data_reg
 //   io.memreq.bits.tag := Mux(store_en, memreq_store_tag_reg, memreq_load_tag_reg)
+   val resetInternal = RegInit(false.B)
 
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
    when (io.currentPC(15, 0) === UInt(0x1bb0)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
+     // TODO(aryap): Constant?
+     fetch_pc := io.currentPC
    }
 
    when (runnable_reg) {
@@ -157,26 +197,26 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    }
 
    when (regReqIdx === numRegisters.U) {
-     // If we have read all arch CPU registers, stop fetching.
-     fetch_valid_reg := false.B
-     fetch_inst_reg := UInt(0)
-     fetchReqDone := true.B
-     // regReqIdx := UInt(0)
+      // If we have read all arch CPU registers, stop fetching.
+      fetch_valid_reg := false.B
+      fetch_inst_reg := UInt(0)
+      fetchReqDone := true.B
+      // regReqIdx := UInt(0)
    } .elsewhen (fetchStart && !fetchReqDone && io.fetch_ready) {
-     fetch_valid_reg := true.B
-     // Successively read CPU registers using an addi instruction.
-     fetch_inst_reg := Cat(
-       regFetchInstrTemplate1,
-       Cat(archRegsRequired(regReqIdx), regFetchInstrTemplate0))
-     regReqIdx := regReqIdx + 1.U
+      fetch_valid_reg := true.B
+      // Successively read CPU registers using an addi instruction.
+      fetch_inst_reg := Cat(
+         regFetchInstrTemplate1,
+         Cat(archRegsRequired(regReqIdx), regFetchInstrTemplate0))
+      regReqIdx := regReqIdx + 1.U
    }
-
+   
    // TODO(aryap): How to explicitly tie data from completing instructions to
    // their sources? For now just assume they come back in order (fine since
    // they're all the same instruction and they issue in separate bundles).
    when (fetchStart && !fetchRespDone && io.rob_valid) {
-     registers(regRespIdx) := io.rob_data
-     regRespIdx := regRespIdx + 1.U
+      registers(regRespIdx) := io.rob_data
+      regRespIdx := regRespIdx + 1.U
    }
 
    // All register read instructions have returned values.
@@ -184,6 +224,32 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       userStart := true.B
       fetchRespDone := true.B
       fetchStart := false.B
+   }
+
+   // Once after we're done and the CPU is ready for an instruction, we feed in
+   // the return jump to continue execution.
+   val returnIdx = RegInit(0.U(log2Up(numReturnInstrs).W))
+   when (userDone && io.fetch_ready) {
+      when (returnIdx < numReturnInstrs.U) {
+         fetch_valid_reg := true.B
+         fetch_inst_reg := returnInstrs(returnIdx)
+         returnIdx := returnIdx + 1.U
+      } .elsewhen (returnIdx === numReturnInstrs.U) {
+         fetch_valid_reg := false.B
+         internalReset := true.B
+      }
+   }
+   when (internalReset) {
+      internalReset := false.B
+      userDone := false.B
+      userStart := false.B
+      fetch_valid_reg := false.B
+      fetch_inst_reg := UInt(0)
+      fetchReqDone := false.B
+      fetchRespDone := false.B
+      fetchStart := false.B
+      stallCnt := 0.U
+      runnable_reg := false.B
    }
 
    //// Once the register fetch is done, the user logic can start.
@@ -207,13 +273,18 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    simple.io.RegA5 := registers(5)
    simple.io.RegA6 := registers(6)
 
-   val simple_start = RegInit(false.B)
-
-   when (stallCnt === 100.U) {
-     simple_start := true.B
+   // TODO(aryap): Instead of stalling, check if there are any outstanding
+   // memory requests.
+   when (stallCnt === 1000.U) {
+      userDone := simple.io.done
    }
 
-   simple.io.start := simple_start
+   // TODO(aryap): This should start as soon as the register copy finishes.
+   //when (stallCnt === 100.U) {
+   //  userStart := true.B
+   //}
+
+   simple.io.start := userStart
 
    val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
    val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
@@ -257,10 +328,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // stall for 200 cycles
    // TODO(aryap): Remove, in favour of actual return instruction when done.
-   when (stallCnt === 1000.U) {
-     stallCnt := 0.U
-     runnable_reg := false.B
-   }
+   //when (stallCnt === 1000.U) {
+   //}
 
    printf("\n")
    for (i <- 0 to numRegisters - 1) {
@@ -272,7 +341,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            [REG FETCH] regReqIdx: %d, regRespIdx: %d, fetchStart: %d,
            [REG FETCH] fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
            rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x,
+           [USER LOGIC] userStart: %d, userDone: %d,
            [SIMPLE]simple.io.start=%d, simple.io.done=%d,
+           [RETURN] returnIdx=%d, internalReset=%d,
            io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_store=%d,
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
@@ -282,9 +353,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      regReqIdx, regRespIdx, fetchStart,
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
      io.rob_valid, io.rob_data, io.currentPC,
-     //[USER LOGIC] sum = %d, sumIdx: %d, userStart: %d, userDone: %d,
-     //sum, sumIdx, userStart, userDone,
+     userStart, userDone,
      simple.io.start, simple.io.done,
+     returnIdx, internalReset,
      io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_store,
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,

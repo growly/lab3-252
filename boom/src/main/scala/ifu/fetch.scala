@@ -78,8 +78,12 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
       val stalled           = Bool(OUTPUT) // CODE REVIEW
 
       val fpga_runnable     = Bool(INPUT)
+      //val fpga_done         = Bool(INPUT)
+      // ARYA: This is more abstractly just a pathway for the FPGA to inject
+      // instructions.
       val fetch_from_fpga_valid = Bool(INPUT)
       val fetch_from_fpga_inst  = UInt(INPUT, 32)
+      val fetch_from_fpga_pc    = UInt(INPUT, vaddrBitsExtended)
       val fetch_from_fpga_ready = Bool(OUTPUT)
    })
 
@@ -121,6 +125,14 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** NextPC Select (F0) ****
    //-------------------------------------------------------------
 
+   // ARYA: We want to skip an instruction. We don't want to add another path
+   // to update the PC, but I mean, that would be nicer.
+   //val skip_instr = RegInit(false.B)
+   //
+   //when (io.fpga_runnable & io.fpga_done) {
+   //  skip_instr := true.B
+   //}
+
    // TAN: When FPGA is running, we stall the entire fetch unit (front-end)
    val if_stalled = io.fpga_runnable | !(FetchBuffer.io.enq.ready) // if FetchBuffer backs up, we have to stall the front-end
    io.stalled := if_stalled
@@ -139,6 +151,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    io.imem.req.bits.speculative := !(io.flush_take_pc)
    io.imem.resp.ready  := !(if_stalled)
 
+   // ARYA: We can change the PC source here.
    f0_redirect_pc :=
       Mux(io.sfence_take_pc,
          io.sfence_addr,
@@ -442,7 +455,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // TAN: make a pseudo fetch bundle and insert it to the FetchBuffer
    // No need to fill in all signals, just the ones that matter
    val fetch_bundle_from_fpga = Wire(new FetchBundle)
-   fetch_bundle_from_fpga.pc := UInt(0) // dummy PC value
+   fetch_bundle_from_fpga.pc := io.fetch_from_fpga_pc
    fetch_bundle_from_fpga.insts(0) := io.fetch_from_fpga_inst
    fetch_bundle_from_fpga.mask := Bits(1)
    io.fetch_from_fpga_ready := FetchBuffer.io.enq.ready
