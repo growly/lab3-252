@@ -510,7 +510,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          laq_allocated      (exe_ld_idx_wakeup) &&
          !laq_executed      (exe_ld_idx_wakeup) &&
          !laq_failure       (exe_ld_idx_wakeup) &&
-         (!laq_is_uncacheable(exe_ld_idx_wakeup) || ((io.commit_load_at_rob_head || io.fpga_runnable) && laq_head === exe_ld_idx_wakeup))
+         //(!laq_is_uncacheable(exe_ld_idx_wakeup) || ((io.commit_load_at_rob_head || io.fpga_runnable) && laq_head === exe_ld_idx_wakeup))a
+         (!laq_is_uncacheable(exe_ld_idx_wakeup) || ((io.commit_load_at_rob_head) && laq_head === exe_ld_idx_wakeup))
          )
    {
       can_fire_load_wakeup := Bool(true)
@@ -1215,7 +1216,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
                                                 laq_addr_val(idx) &
                                                 laq_executed(idx) &
                                                 laq_succeeded(idx)
-      when (io.commit_load_mask(w) || fpga_load_commit)
+      when (io.commit_load_mask(w))// || fpga_load_commit)
       {
          assert (laq_allocated(idx), "[lsu] trying to commit an un-allocated load entry.")
          assert (laq_executed(idx), "[lsu] trying to commit an un-executed load entry.")
@@ -1229,7 +1230,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          laq_forwarded_std_val(idx) := Bool(false)
       }
 
-      temp_laq_head = Mux(io.commit_load_mask(w) || fpga_load_commit,
+      temp_laq_head = Mux(io.commit_load_mask(w),// || fpga_load_commit,
         WrapInc(temp_laq_head, num_ld_entries), temp_laq_head)
    }
    laq_head := temp_laq_head
@@ -1401,6 +1402,50 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    io.counters.stld_order_fail := RegNext(stld_order_fail)
    io.counters.ldld_order_fail := RegNext(ldld_order_fail)
 
+   if (DEBUG_PRINTF_LSU)
+   {
+      printf("tlb miss %d\n", tlb_miss)
+      printf("wakeup_idx: %d, ld is head of ROB:%d\n", exe_ld_idx_wakeup, io.commit_load_at_rob_head)
+      for (i <- 0 until NUM_LSU_ENTRIES)
+      {
+         val t_laddr = laq_addr(i)
+         val t_saddr = saq_addr(i)
+         printf("         ldq[%d]=(%c%c%c%c%c%c%c%d) st_dep(%d,m=%x) 0x%x %c %c   saq[%d]=(%c%c%c%c%c%c%c) b:%x 0x%x -> 0x%x %c %c %c %c\n"
+            , UInt(i, MEM_ADDR_SZ)
+            , Mux(laq_allocated(i), Str("V"), Str("-"))
+            , Mux(laq_addr_val(i), Str("A"), Str("-"))
+            , Mux(laq_executed(i), Str("E"), Str("-"))
+            , Mux(laq_succeeded(i), Str("S"), Str("-"))
+            , Mux(laq_failure(i), Str("F"), Str("_"))
+            , Mux(laq_is_uncacheable(i), Str("U"), Str("_"))
+            , Mux(laq_forwarded_std_val(i), Str("X"), Str("_"))
+            , laq_forwarded_stq_idx(i)
+            , laq_uop(i).stq_idx // youngest dep-store
+            , laq_st_dep_mask(i)
+            , t_laddr(19,0)
+
+            , Mux(laq_head === UInt(i), Str("H"), Str(" "))
+            , Mux(laq_tail=== UInt(i), Str("T"), Str(" "))
+
+            , UInt(i, MEM_ADDR_SZ)
+            , Mux(stq_entry_val(i), Str("V"), Str("-"))
+            , Mux(saq_val(i), Str("A"), Str("-"))
+            , Mux(sdq_val(i), Str("D"), Str("-"))
+            , Mux(stq_committed(i), Str("C"), Str("-"))
+            , Mux(stq_executed(i), Str("E"), Str("-"))
+            , Mux(stq_succeeded(i), Str("S"), Str("-"))
+            , Mux(saq_is_virtual(i), Str("T"), Str("-"))
+            , stq_uop(i).br_mask
+            , t_saddr(19,0)
+            , sdq_data(i)
+
+            , Mux(stq_head === UInt(i), Str("H"), Str(" "))
+            , Mux(stq_execute_head === UInt(i), Str("E"), Str(" "))
+            , Mux(stq_commit_head === UInt(i), Str("C"), Str(" "))
+            , Mux(stq_tail=== UInt(i), Str("T"), Str(" "))
+         )
+      }}
+
    printf("\n")
    printf("""LSU io.memresp.valid=%d io.memresp.bits.is_load=%d,
              will_fire_load_incoming=%d,
@@ -1451,49 +1496,6 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    )
    printf("\n")
 
-   if (DEBUG_PRINTF_LSU)
-   {
-      printf("tlb miss %d\n", tlb_miss)
-      printf("wakeup_idx: %d, ld is head of ROB:%d\n", exe_ld_idx_wakeup, io.commit_load_at_rob_head)
-      for (i <- 0 until NUM_LSU_ENTRIES)
-      {
-         val t_laddr = laq_addr(i)
-         val t_saddr = saq_addr(i)
-         printf("         ldq[%d]=(%c%c%c%c%c%c%c%d) st_dep(%d,m=%x) 0x%x %c %c   saq[%d]=(%c%c%c%c%c%c%c) b:%x 0x%x -> 0x%x %c %c %c %c\n"
-            , UInt(i, MEM_ADDR_SZ)
-            , Mux(laq_allocated(i), Str("V"), Str("-"))
-            , Mux(laq_addr_val(i), Str("A"), Str("-"))
-            , Mux(laq_executed(i), Str("E"), Str("-"))
-            , Mux(laq_succeeded(i), Str("S"), Str("-"))
-            , Mux(laq_failure(i), Str("F"), Str("_"))
-            , Mux(laq_is_uncacheable(i), Str("U"), Str("_"))
-            , Mux(laq_forwarded_std_val(i), Str("X"), Str("_"))
-            , laq_forwarded_stq_idx(i)
-            , laq_uop(i).stq_idx // youngest dep-store
-            , laq_st_dep_mask(i)
-            , t_laddr(19,0)
-
-            , Mux(laq_head === UInt(i), Str("H"), Str(" "))
-            , Mux(laq_tail=== UInt(i), Str("T"), Str(" "))
-
-            , UInt(i, MEM_ADDR_SZ)
-            , Mux(stq_entry_val(i), Str("V"), Str("-"))
-            , Mux(saq_val(i), Str("A"), Str("-"))
-            , Mux(sdq_val(i), Str("D"), Str("-"))
-            , Mux(stq_committed(i), Str("C"), Str("-"))
-            , Mux(stq_executed(i), Str("E"), Str("-"))
-            , Mux(stq_succeeded(i), Str("S"), Str("-"))
-            , Mux(saq_is_virtual(i), Str("T"), Str("-"))
-            , stq_uop(i).br_mask
-            , t_saddr(19,0)
-            , sdq_data(i)
-
-            , Mux(stq_head === UInt(i), Str("H"), Str(" "))
-            , Mux(stq_execute_head === UInt(i), Str("E"), Str(" "))
-            , Mux(stq_commit_head === UInt(i), Str("C"), Str(" "))
-            , Mux(stq_tail=== UInt(i), Str("T"), Str(" "))
-         )
-      }}
 }
 
 

@@ -349,7 +349,8 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.stq_full := lsu.io.stq_full
    lsu.io.fpga_runnable := fpga.io.runnable
 
-   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
+   //exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
+   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.execute_mem_inst
 
    exe_units.memory_unit.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
 
@@ -366,8 +367,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 
-   exe_units.memory_unit.io.fpga_mem_cmd := fpga.io.memreq.bits.mem_cmd
+   exe_units.memory_unit.io.fpga_exe_resp.uop.mem_cmd := fpga.io.memreq.bits.mem_cmd
 
+   exe_units.memory_unit.io.fpga_exe_resp.uop.rob_idx := fpga.io.memreq.bits.rob_idx
    // TAN: Here we assign memory response signals to the FPGA
    // We use the tag to distinguish the memory requests
    fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
@@ -534,13 +536,17 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // to the memory unit, so that the LSU can operate in normal order.
    // Again, we have to do this because we do not inject any uop for
    // the load/store request in the Decode stage
-   exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
-   exe_units.memory_unit.io.fpga_stq_idx := new_sidx
-   lsu.io.fpga_ldq_idx := new_lidx
-   lsu.io.fpga_stq_idx := new_sidx
+//   exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
+//   exe_units.memory_unit.io.fpga_stq_idx := new_sidx
+//   lsu.io.fpga_ldq_idx := new_lidx
+//   lsu.io.fpga_stq_idx := new_sidx
+   exe_units.memory_unit.io.fpga_ldq_idx := fpga.io.memreq.bits.ldq_idx
+   exe_units.memory_unit.io.fpga_stq_idx := fpga.io.memreq.bits.stq_idx
+
    printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",
-     exe_units.memory_unit.io.fpga_ldq_idx,
-     exe_units.memory_unit.io.fpga_stq_idx)
+     fpga.io.memreq.bits.ldq_idx,
+     fpga.io.memreq.bits.stq_idx)
+
    //-------------------------------------------------------------
    // Rob Allocation Logic
 
@@ -603,7 +609,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
       if (exe_units(i).is_mem_unit)
       {
          // If Memory, it's the shared long-latency port.
-         int_wakeups(wu_idx).valid := ll_wbarb.io.out.fire()
+         int_wakeups(wu_idx).valid := ll_wbarb.io.out.fire() && !fpga.io.fetch_mem_inst
          int_wakeups(wu_idx).bits  := ll_wbarb.io.out.bits
          wu_idx += 1
       }
@@ -657,9 +663,10 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    //-------------------------------------------------------------
    //-------------------------------------------------------------
 
+   // TAN: if FPGA issues a memory instruction, should we stop BOOM from dispatching it?
    for (w <- 0 until DECODE_WIDTH)
    {
-      dis_valids(w)       := rename_stage.io.ren2_mask(w)
+      dis_valids(w)       := rename_stage.io.ren2_mask(w) && !fpga.io.fetch_mem_inst
       dis_uops(w)         := GetNewUopAndBrMask(rename_stage.io.ren2_uops(w), br_unit.brinfo)
    }
 
@@ -990,9 +997,12 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    require (mem_unit.num_rf_write_ports == 1)
    val mem_resp = mem_unit.io.resp(0)
 
-   // TAN: this is HIGH only when there is a writeback to RF
-   ll_wbarb.io.in(0).valid := mem_resp.valid && mem_resp.bits.uop.ctrl.rf_wen && mem_resp.bits.uop.dst_rtype === RT_FIX
+   // TAN: this is HIGH only when there is a writeback to RF (a load instruction)
+   ll_wbarb.io.in(0).valid := mem_resp.valid && (fpga.io.fetch_mem_inst || (mem_resp.bits.uop.ctrl.rf_wen && mem_resp.bits.uop.dst_rtype === RT_FIX))
    ll_wbarb.io.in(0).bits  := mem_resp.bits
+
+   printf("AAABBB mem_resp.rob_idx: %d, fpga_fetch_mem_inst: %d, ll_wbarb_in_valid: %d\n",
+     mem_resp.bits.uop.rob_idx, fpga.io.fetch_mem_inst, ll_wbarb.io.in(0).valid)
 
    assert (ll_wbarb.io.in(0).ready) // never backpressure the memory unit.
    ll_wbarb.io.in(1) <> fp_pipeline.io.toint
@@ -1036,7 +1046,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             rob.io.wb_resps(cnt).valid := ll_wbarb.io.out.valid && !(ll_uop.is_store && !ll_uop.is_amo)
             rob.io.wb_resps(cnt).bits <> ll_wbarb.io.out.bits
             // for commit logging... (only integer writes come through here)
-            rob.io.debug_wb_valids(cnt) := ll_wbarb.io.out.valid && ll_uop.ctrl.rf_wen && ll_uop.dst_rtype === RT_FIX
+            rob.io.debug_wb_valids(cnt) := ll_wbarb.io.out.valid && (fpga.io.fetch_mem_inst || (ll_uop.ctrl.rf_wen && ll_uop.dst_rtype === RT_FIX))
             data = ll_wbarb.io.out.bits.data
             printf("%d %d mem committed valid %d, data 0x%x, ll_warb_out_valid=%d\n", UInt(j), UInt(cnt),
               rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data, ll_wbarb.io.out.valid)

@@ -76,7 +76,6 @@ class ExecutionUnitIO(num_rf_read_ports: Int
    val fpga_ldq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_stq_idx = UInt(INPUT, MEM_ADDR_SZ)
    val fpga_exe_resp = (new FuncUnitResp(xLen)).flip()
-   val fpga_mem_cmd = UInt(INPUT, M_SZ)
 }
 
 abstract class ExecutionUnit(val num_rf_read_ports: Int
@@ -568,6 +567,7 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    val fpga_exe_resp_bits_uop_ldq_idx_reg = Reg(init = UInt(0, MEM_ADDR_SZ))
    val fpga_exe_resp_bits_uop_stq_idx_reg = Reg(init = UInt(0, MEM_ADDR_SZ))
    val fpga_exe_resp_bits_uop_pc_reg = Reg(init = UInt(0, vaddrBitsExtended))
+   val fpga_exe_resp_bits_uop_rob_idx = Reg(init = UInt(0))
 
    fpga_memreq_valid_reg := io.fpga_memreq_valid
 
@@ -582,6 +582,7 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    fpga_exe_resp_bits_uop_ldq_idx_reg := io.fpga_ldq_idx
    fpga_exe_resp_bits_uop_stq_idx_reg := io.fpga_stq_idx
    fpga_exe_resp_bits_uop_pc_reg := io.fpga_memreq_tag
+   fpga_exe_resp_bits_uop_rob_idx := io.fpga_exe_resp.uop.rob_idx
 
    io.lsu_io.exe_resp.valid := fpga_memreq_valid_reg | maddrcalc.io.resp.valid
    io.lsu_io.exe_resp.bits.addr := Mux(fpga_memreq_valid_reg,
@@ -638,6 +639,10 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
    io.lsu_io.exe_resp.bits.uop.pc := Mux(fpga_memreq_valid_reg,
                                     fpga_exe_resp_bits_uop_pc_reg,
                                     maddrcalc.io.resp.bits.uop.pc)
+
+   io.lsu_io.exe_resp.bits.uop.rob_idx := Mux(fpga_memreq_valid_reg,
+                                    fpga_exe_resp_bits_uop_rob_idx,
+                                    maddrcalc.io.resp.bits.uop.rob_idx)
 
    // TODO get rid of com_exception and guard with an assert? Need to surpress within dc-shim.
 //   assert (!(io.com_exception && lsu.io.memreq_uop.is_load && lsu.io.memreq_val),
