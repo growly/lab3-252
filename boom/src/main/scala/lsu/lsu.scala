@@ -1168,12 +1168,12 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
 
    for (w <- 0 until pl_width)
    {
-      when (io.commit_store_mask(w) || fpga_store_commit)
+      when (io.commit_store_mask(w))// || fpga_store_commit)
       {
          stq_committed(temp_stq_commit_head) := Bool(true)
       }
 
-      temp_stq_commit_head = Mux(io.commit_store_mask(w) || fpga_store_commit,
+      temp_stq_commit_head = Mux(io.commit_store_mask(w),// || fpga_store_commit,
                                  WrapInc(temp_stq_commit_head, num_st_entries),
                                  temp_stq_commit_head)
    }

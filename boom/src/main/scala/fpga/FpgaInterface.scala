@@ -277,7 +277,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    } .elsewhen (fetch_mem_inst_start) {
      fetch_mem_inst_reg := true.B
      memCnt := memCnt + 1.U
-     fetch_inst_reg := 0x00052883.U
+     fetch_inst_reg := Mux(memCnt(0) === 0.U, 0x00052883.U, 0x0115a023.U)
      fetch_valid_reg := true.B
      fetch_pc_reg := 0x1000.U + (memCnt << 4)
    }
@@ -291,9 +291,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // 0x8001fe28 exceeds UInt size ... have to break it down as follows
    val test1 = Reg(UInt(vaddrBitsExtended.W))
    val test2 = Reg(UInt(vaddrBitsExtended.W))
-   val test3 = RegInit(0x2345.U(xLen.W))
+   val test3 = Reg(UInt(vaddrBitsExtended.W))
    test1 := 0x8.U << 28
    test2 := test1 + 0x21a18.U
+   test3 := test1 + 0x21ba0.U
 
    when (stallCnt === 80.U) {
      execute_mem_inst_start := true.B
@@ -312,13 +313,17 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    } .elsewhen (execute_mem_inst_start) {
      execute_mem_inst_reg := true.B
      memCnt1 := memCnt1 + 1.U
-     addr_reg := test2 + (memCnt1 << 2)
+     addr_reg := Mux(memCnt1(0) === 0.U, test2 + (memCnt1 << 2), test3 + (memCnt1 << 2))
      tag_reg := 0x1000.U + (memCnt << 4)
      rob_idx_reg := 7.U + memCnt1
    }
 
-   when (execute_mem_inst_reg) {
+   when (execute_mem_inst_reg && memCnt1(0) === 1.U) {
      ldq_idx_reg := ldq_idx_reg + 1.U
+   }
+
+   when (execute_mem_inst_reg && memCnt1(0) === 0.U) {
+     stq_idx_reg := stq_idx_reg + 1.U
    }
 
    io.memreq.bits.addr := addr_reg
@@ -326,9 +331,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.memreq.bits.rob_idx := rob_idx_reg
    io.memreq.bits.ldq_idx := ldq_idx_reg
    io.memreq.bits.stq_idx := stq_idx_reg
-   io.memreq.bits.is_load := true.B
-   io.memreq.bits.is_store := false.B
-   io.memreq.bits.mem_cmd := M_XRD
+   io.memreq.bits.is_load := Mux(memCnt1(0) === 1.U, true.B, false.B)
+   io.memreq.bits.is_store := Mux(memCnt1(0) === 0.U, true.B, false.B)
+   io.memreq.bits.mem_cmd := Mux(memCnt1(0) === 1.U, M_XRD, M_XWR)
    io.execute_mem_inst := execute_mem_inst_reg
 
    //val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
