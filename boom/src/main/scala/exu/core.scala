@@ -334,12 +334,19 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
    fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
    fetch_unit.io.fetch_from_fpga_pc := fpga.io.fetch_pc
-   fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready
+   fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready &&
+                          !lsu.io.laq_full &&
+                          !lsu.io.stq_full &&
+                          rob.io.ready
 
    // TAN: Here we assign commit signals to the FPGA.
    // This should be used for getting data from register file.
    fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
+
+   fpga.io.orig_rob_tail := rob.io.curr_rob_tail
+   fpga.io.orig_ldq_tail := lsu.io.new_ldq_idx
+   fpga.io.orig_stq_tail := lsu.io.new_stq_idx
 
    lsu.io.fpga_memreq_valid := fpga.io.memreq.valid
    lsu.io.fpga_memreq_tag := fpga.io.memreq.bits.tag

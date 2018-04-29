@@ -47,6 +47,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       val fetch_valid      = Bool(OUTPUT)
       val fetch_ready      = Bool(INPUT)
 
+      val orig_rob_tail    = UInt(INPUT, 4)
+      val orig_ldq_tail    = UInt(INPUT, 2)
+      val orig_stq_tail    = UInt(INPUT, 2)
+
       val rob_valid        = Bool(INPUT)
       val rob_data         = UInt(INPUT, xLen)
 
@@ -146,6 +150,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val fetch_mem_inst_start = Reg(init = Bool(false))
    val memCnt = Reg(init = UInt(0, 32))
 
+   val orig_rob_tail_reg = Reg(init = UInt(0, 4))
+   val orig_ldq_tail_reg = Reg(init = UInt(0, 2))
+   val orig_stq_tail_reg = Reg(init = UInt(0, 2))
+ 
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
    when (io.currentPC(15, 0) === UInt(0x1bb0)) {
@@ -265,21 +273,35 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    when (!userStart_delayed && userStart) {
       simple.io.start := false.B
       fetch_mem_inst_start := true.B
+      orig_rob_tail_reg := io.orig_rob_tail
+      orig_ldq_tail_reg := io.orig_ldq_tail
+      orig_stq_tail_reg := io.orig_stq_tail
    }.otherwise {
       simple.io.start := false.B
    }
 
-   when (memCnt === 4.U) {
-     memCnt := 0.U
+   val memInstrs = Mem(1000, UInt(xLen.W))
+   val memInstrIdx = Reg(init = UInt(0, 32.W))
+   memInstrs(0) := "h00052883".U
+   memInstrs(1) := "h0115a023".U
+
+   when (memCnt === 100.U) {
+     memCnt := 101.U
      fetch_mem_inst_start := false.B
      fetch_inst_reg := 0.U
      fetch_valid_reg := false.B
-   } .elsewhen (fetch_mem_inst_start) {
+   } .elsewhen (fetch_mem_inst_start && io.fetch_ready) {
      fetch_mem_inst_reg := true.B
      memCnt := memCnt + 1.U
-     fetch_inst_reg := Mux(memCnt(0) === 0.U, 0x00052883.U, 0x0115a023.U)
+     fetch_inst_reg := memInstrs(memInstrIdx)
      fetch_valid_reg := true.B
-     fetch_pc_reg := 0x1000.U + (memCnt << 4)
+     fetch_pc_reg := 1000.U + (memCnt << 4)
+   }
+
+   when (memInstrIdx === 1.U && io.fetch_ready) {
+     memInstrIdx := 0.U
+   } .elsewhen (fetch_mem_inst_start && io.fetch_ready) {
+     memInstrIdx := memInstrIdx + 1.U
    }
 
    io.fetch_mem_inst := fetch_mem_inst_reg
@@ -296,37 +318,42 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    test2 := test1 + 0x21a18.U
    test3 := test1 + 0x21ba0.U
 
-   when (stallCnt === 80.U) {
-     execute_mem_inst_start := true.B
-   }
-
    val addr_reg = Reg(init = UInt(0, 32))
+   val data_reg = Reg(init = UInt(0, 32))
    val tag_reg = Reg(init = UInt(0, 32))
    val rob_idx_reg = Reg(init = UInt(0, 4))
    val ldq_idx_reg = Reg(init = UInt(0, 2))
    val stq_idx_reg = Reg(init = UInt(0, 2))
 
-   when (memCnt1 === 4.U) {
+   when (stallCnt === 80.U) {
+     execute_mem_inst_start := true.B
+     ldq_idx_reg := orig_ldq_tail_reg
+     stq_idx_reg := orig_stq_tail_reg
+   }
+
+   when (memCnt1 === 100.U) {
      execute_mem_inst_start := false.B
      execute_mem_inst_reg := false.B
-     memCnt1 := 0.U
-   } .elsewhen (execute_mem_inst_start) {
+     //memCnt1 := 0.U
+   } .elsewhen (memCnt1 < 100.U && execute_mem_inst_start && memCnt1 < memCnt) {
      execute_mem_inst_reg := true.B
      memCnt1 := memCnt1 + 1.U
      addr_reg := Mux(memCnt1(0) === 0.U, test2 + (memCnt1 << 2), test3 + (memCnt1 << 2))
-     tag_reg := 0x1000.U + (memCnt << 4)
-     rob_idx_reg := 7.U + memCnt1
+     data_reg := 0x1234.U + memCnt1
+     tag_reg := 1000.U + (memCnt1 << 4)
+     rob_idx_reg := orig_rob_tail_reg + memCnt1
    }
 
-   when (execute_mem_inst_reg && memCnt1(0) === 1.U) {
+   when (execute_mem_inst_reg && memCnt1(0) === 1.U && memCnt1 < memCnt) {
      ldq_idx_reg := ldq_idx_reg + 1.U
    }
 
-   when (execute_mem_inst_reg && memCnt1(0) === 0.U) {
+   when (execute_mem_inst_reg && memCnt1(0) === 0.U && memCnt1 < memCnt) {
      stq_idx_reg := stq_idx_reg + 1.U
    }
 
    io.memreq.bits.addr := addr_reg
+   io.memreq.bits.data := data_reg
    io.memreq.bits.tag := tag_reg
    io.memreq.bits.rob_idx := rob_idx_reg
    io.memreq.bits.ldq_idx := ldq_idx_reg
@@ -334,7 +361,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.memreq.bits.is_load := Mux(memCnt1(0) === 1.U, true.B, false.B)
    io.memreq.bits.is_store := Mux(memCnt1(0) === 0.U, true.B, false.B)
    io.memreq.bits.mem_cmd := Mux(memCnt1(0) === 1.U, M_XRD, M_XWR)
-   io.execute_mem_inst := execute_mem_inst_reg
+   io.execute_mem_inst := execute_mem_inst_reg && (memCnt1 < memCnt)
 
    //val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
    val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
@@ -429,6 +456,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.laq_full=%d, io.stq_full=%d,
            mem_order(0)=%d, mem_order(1)=%d,
            io.memreq.bits.ldq_idx=%d, io.memreq.bits.stq_idx=%d
+           memCnt=%d, memCnt1=%d, io.memreq.bits.rob_idx=%d, io.execute_mem_inst=%d
      """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
@@ -446,7 +474,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      simple.io.mem_p1_addr.valid,
      io.laq_full, io.stq_full,
      mem_order(0), mem_order(1),
-     io.memreq.bits.ldq_idx, io.memreq.bits.stq_idx
+     io.memreq.bits.ldq_idx, io.memreq.bits.stq_idx,
+     memCnt, memCnt1, io.memreq.bits.rob_idx, io.execute_mem_inst
    )
    printf("\n")
 
