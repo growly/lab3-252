@@ -10,7 +10,10 @@ class Load(addrWidth: Int, dataWidth: Int) extends Module {
     val out = new DecoupledIO(UInt(dataWidth.W))
 
     val mem_addr = new DecoupledIO(UInt(addrWidth.W))
+    val mem_addr_tag = Output(UInt(32.W))
     val mem_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
+    val mem_data_in_tag = Output(UInt(32.W))
+
   })
 
   io.in.ready := io.mem_addr.ready
@@ -21,4 +24,17 @@ class Load(addrWidth: Int, dataWidth: Int) extends Module {
   io.out.valid := io.mem_data_in.valid
   io.mem_data_in.ready := io.out.ready
 
+  val mem_addr_tag_reg = RegInit(0.U(32.W))
+  val mem_data_in_tag_reg = RegInit(0.U(32.W))
+
+  when (io.mem_addr.valid && io.mem_addr.ready) {
+    mem_addr_tag_reg := mem_addr_tag_reg + 2.U
+  }
+
+  when (io.mem_data_in.valid && io.mem_data_in.ready) {
+    mem_data_in_tag_reg := mem_data_in_tag_reg + 2.U
+  }
+
+  io.mem_addr_tag := mem_addr_tag_reg
+  io.mem_data_in_tag := mem_data_in_tag_reg
 }

@@ -17,9 +17,6 @@ class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
    val tag      = UInt(width = 32)
    val data     = UInt(width = xLen)
    val mem_cmd  = UInt(width = M_SZ)
-   val ldq_idx  = UInt(width = 2)
-   val stq_idx  = UInt(width = 2)
-   val rob_idx  = UInt(width = 4)
 }
 
 class FpgaMemResp()(implicit p: Parameters) extends BoomBundle()(p)
@@ -53,12 +50,18 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
       val rob_valid        = Bool(INPUT)
       val rob_data         = UInt(INPUT, xLen)
+      val rob_empty        = Bool(INPUT)
+      val rob_flush        = Bool(OUTPUT)
 
       val laq_full         = Bool(INPUT)
       val stq_full         = Bool(INPUT)
 
       val memreq           = new DecoupledIO(new FpgaMemReq())
       val memresp          = new DecoupledIO(new FpgaMemResp()).flip()
+
+      val memreq_rob_idx   = UInt(OUTPUT, 4)
+      val memreq_ldq_idx   = UInt(OUTPUT, 2)
+      val memreq_stq_idx   = UInt(OUTPUT, 2)
 
       // High when the backing logic has finished computation.
       val done             = Bool(OUTPUT)
@@ -131,6 +134,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val fetchReqDone = RegInit(false.B)
    val fetchRespDone = RegInit(false.B)
    val fetch_pc_reg = RegInit(0.U(vaddrBitsExtended.W))
+   val orig_pc_reg = RegInit(0.U(vaddrBitsExtended.W))
 
    val regReqIdx = Reg(init = UInt(0, log2Up(numRegisters)))
    val regRespIdx = Reg(init = UInt(0, log2Up(numRegisters)))
@@ -148,12 +152,18 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    val fetch_mem_inst_reg = Reg(init = Bool(false))
    val fetch_mem_inst_start = Reg(init = Bool(false))
-   val memCnt = Reg(init = UInt(0, 32))
 
    val orig_rob_tail_reg = Reg(init = UInt(0, 4))
    val orig_ldq_tail_reg = Reg(init = UInt(0, 2))
    val orig_stq_tail_reg = Reg(init = UInt(0, 2))
- 
+
+   val memreq_bits_reg = Reg(new FpgaMemReq())
+   val memreq_valid_reg = Reg(init=false.B)
+
+   val memreq_rob_idx_reg = Reg(init = UInt(0, 4))
+   val memreq_ldq_idx_reg = Reg(init = UInt(0, 2))
+   val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
+
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
    when (io.currentPC(15, 0) === UInt(0x1bb0)) {
@@ -161,6 +171,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      runnable_reg := true.B
      // TODO(aryap): Constant?
      fetch_pc_reg := io.currentPC
+     orig_pc_reg := io.currentPC
    }
 
    when (runnable_reg) {
@@ -183,7 +194,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       fetch_valid_reg := false.B
       fetch_inst_reg := UInt(0)
       fetchReqDone := true.B
-      // regReqIdx := UInt(0)
+      regReqIdx := UInt(0)
    } .elsewhen (fetchStart && !fetchReqDone && io.fetch_ready) {
       fetch_valid_reg := true.B
       // Successively read CPU registers using an addi instruction.
@@ -206,6 +217,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       userStart := true.B
       fetchRespDone := true.B
       fetchStart := false.B
+      regRespIdx := UInt(0)
    }
 
    // Once after we're done and the CPU is ready for an instruction, we feed in
@@ -216,6 +228,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
          fetch_valid_reg := true.B
          fetch_inst_reg := returnInstrs(returnIdx)
          returnIdx := returnIdx + 1.U
+         fetch_pc_reg := orig_pc_reg
       } .elsewhen (returnIdx === numReturnInstrs.U) {
          fetch_valid_reg := false.B
          internalReset := true.B
@@ -234,18 +247,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       runnable_reg := false.B
    }
 
-   //// Once the register fetch is done, the user logic can start.
-   //val sum = RegInit(0.U(32.W))
-   //val sumIdx = Reg(UInt(log2Up(numRegisters).W), 0.U)
-   //when (userStart && !userDone) {
-   //   when (sumIdx < numRegisters.U) {
-   //      sum := sum + registers(sumIdx)
-   //      sumIdx := sumIdx + 1.U
-   //   } .elsewhen (sumIdx === numRegisters.U) {
-   //      userDone := true.B
-   //   }
-   //}
-
    val simple = Module(new simple(vaddrBitsExtended, xLen))
    simple.io.RegA0 := registers(0)
    simple.io.RegA1 := registers(1)
@@ -255,12 +256,34 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    simple.io.RegA5 := registers(5)
    simple.io.RegA6 := registers(6)
 
-   // TODO(aryap): Instead of stalling, check if there are any outstanding
-   // memory requests.
-   when (stallCnt === 1000.U) {
-      //userDone := simple.io.done
-      runnable_reg := false.B
-      fetch_mem_inst_reg := false.B
+   val rob_flush_start = Reg(init = Bool(false))
+   val rob_flush_start_delayed = Reg(init = Bool(false))
+
+   rob_flush_start_delayed := rob_flush_start
+
+   // TODO: should use the done signal from the kernel here ... Have to figure
+   // out when is safe to set the done signal (e.g. wait until all outstanding
+   // memory transactions complete)
+   //when (simple.io.done) {
+   when (stallCnt === 800.U) { // fake done signal
+     rob_flush_start := true.B
+   }
+
+   when (!rob_flush_start_delayed && rob_flush_start) {
+     io.rob_flush := true.B
+     fetch_mem_inst_reg := false.B
+     fetch_mem_inst_start := false.B
+     fetch_inst_reg := 0.U
+     fetch_valid_reg := false.B
+   }
+   .otherwise {
+     io.rob_flush := false.B
+   }
+
+   // after flushing rob, we can issue return insts to get back to BOOM
+   when (rob_flush_start && io.rob_empty) {
+     userDone := true.B
+     rob_flush_start := false.B
    }
 
    val userStart_delayed = RegInit(false.B)
@@ -271,31 +294,32 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // start executing kernel after we finish with fetching registers
    when (!userStart_delayed && userStart) {
-      simple.io.start := false.B
+      simple.io.start := true.B
       fetch_mem_inst_start := true.B
       orig_rob_tail_reg := io.orig_rob_tail
       orig_ldq_tail_reg := io.orig_ldq_tail
       orig_stq_tail_reg := io.orig_stq_tail
-   }.otherwise {
+      simple.io.start := true.B
+      memreq_ldq_idx_reg := io.orig_ldq_tail
+      memreq_stq_idx_reg := io.orig_stq_tail
+   }
+   .otherwise {
       simple.io.start := false.B
    }
 
-   val memInstrs = Mem(1000, UInt(xLen.W))
+   val memInstrs = Mem(2, UInt(xLen.W))
    val memInstrIdx = Reg(init = UInt(0, 32.W))
+   val memInstrCnt = Reg(init = UInt(0, 32))
    memInstrs(0) := "h00052883".U
    memInstrs(1) := "h0115a023".U
 
-   when (memCnt === 100.U) {
-     memCnt := 101.U
-     fetch_mem_inst_start := false.B
-     fetch_inst_reg := 0.U
-     fetch_valid_reg := false.B
-   } .elsewhen (fetch_mem_inst_start && io.fetch_ready) {
+   // Keep fetching memory instructions until the kernel finishes
+   when (fetch_mem_inst_start && io.fetch_ready) {
      fetch_mem_inst_reg := true.B
-     memCnt := memCnt + 1.U
+     memInstrCnt := memInstrCnt + 1.U
      fetch_inst_reg := memInstrs(memInstrIdx)
      fetch_valid_reg := true.B
-     fetch_pc_reg := 1000.U + (memCnt << 4)
+     fetch_pc_reg := memInstrCnt
    }
 
    when (memInstrIdx === 1.U && io.fetch_ready) {
@@ -306,132 +330,77 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    io.fetch_mem_inst := fetch_mem_inst_reg
 
-   val execute_mem_inst_start = Reg(init = Bool(false))
-   val execute_mem_inst_reg = Reg(init = Bool(false))
-   val memCnt1 = Reg(init = UInt(0, 32))
-
-   // 0x8001fe28 exceeds UInt size ... have to break it down as follows
-   val test1 = Reg(UInt(vaddrBitsExtended.W))
-   val test2 = Reg(UInt(vaddrBitsExtended.W))
-   val test3 = Reg(UInt(vaddrBitsExtended.W))
-   test1 := 0x8.U << 28
-   test2 := test1 + 0x21a18.U
-   test3 := test1 + 0x21ba0.U
-
-   val addr_reg = Reg(init = UInt(0, 32))
-   val data_reg = Reg(init = UInt(0, 32))
-   val tag_reg = Reg(init = UInt(0, 32))
-   val rob_idx_reg = Reg(init = UInt(0, 4))
-   val ldq_idx_reg = Reg(init = UInt(0, 2))
-   val stq_idx_reg = Reg(init = UInt(0, 2))
-
-   when (stallCnt === 80.U) {
-     execute_mem_inst_start := true.B
-     ldq_idx_reg := orig_ldq_tail_reg
-     stq_idx_reg := orig_stq_tail_reg
-   }
-
-   when (memCnt1 === 100.U) {
-     execute_mem_inst_start := false.B
-     execute_mem_inst_reg := false.B
-     //memCnt1 := 0.U
-   } .elsewhen (memCnt1 < 100.U && execute_mem_inst_start && memCnt1 < memCnt) {
-     execute_mem_inst_reg := true.B
-     memCnt1 := memCnt1 + 1.U
-     addr_reg := Mux(memCnt1(0) === 0.U, test2 + (memCnt1 << 2), test3 + (memCnt1 << 2))
-     data_reg := 0x1234.U + memCnt1
-     tag_reg := 1000.U + (memCnt1 << 4)
-     rob_idx_reg := orig_rob_tail_reg + memCnt1
-   }
-
-   when (execute_mem_inst_reg && memCnt1(0) === 1.U && memCnt1 < memCnt) {
-     ldq_idx_reg := ldq_idx_reg + 1.U
-   }
-
-   when (execute_mem_inst_reg && memCnt1(0) === 0.U && memCnt1 < memCnt) {
-     stq_idx_reg := stq_idx_reg + 1.U
-   }
-
-   io.memreq.bits.addr := addr_reg
-   io.memreq.bits.data := data_reg
-   io.memreq.bits.tag := tag_reg
-   io.memreq.bits.rob_idx := rob_idx_reg
-   io.memreq.bits.ldq_idx := ldq_idx_reg
-   io.memreq.bits.stq_idx := stq_idx_reg
-   io.memreq.bits.is_load := Mux(memCnt1(0) === 1.U, true.B, false.B)
-   io.memreq.bits.is_store := Mux(memCnt1(0) === 0.U, true.B, false.B)
-   io.memreq.bits.mem_cmd := Mux(memCnt1(0) === 1.U, M_XRD, M_XWR)
-   io.execute_mem_inst := execute_mem_inst_reg && (memCnt1 < memCnt)
-
    //val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
    val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
    val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
-   val mem_order = Reg(init=Vec.fill(2){Bool(false)})
+   //val mem_order = Reg(init=Vec.fill(2){Bool(false)})
    // Reset mem_order when all memory transactions are fired
-   when (mem_order(0) && mem_order(1)) {
-     mem_order(0) := false.B
-     mem_order(1) := false.B
-   }
+   //when (mem_order(0) && mem_order(1)) {
+   //  mem_order(0) := false.B
+   //  mem_order(1) := false.B
+   //}
 
-   val memreq_bits_reg = Reg(new FpgaMemReq())
-   val memreq_valid_reg = Reg(init=false.B)
-//   when (load_memreq_queue.io.deq.valid && load_memreq_queue.io.deq.ready) {
-//     mem_order(0) := true.B
-//     memreq_bits_reg := load_memreq_queue.io.deq.bits
-//     memreq_valid_reg := load_memreq_queue.io.deq.valid
-//   }
-//   .elsewhen (store_memreq_queue.io.deq.valid && store_memreq_queue.io.deq.ready) {
-//     mem_order(1) := true.B
-//     memreq_bits_reg := store_memreq_queue.io.deq.bits
-//     memreq_valid_reg := store_memreq_queue.io.deq.valid
-//   }
-//   .otherwise {
-//     memreq_valid_reg := false.B
-//   }
-//   //io.memreq.bits := memreq_arb.io.out.bits
-//   //io.memreq.valid := memreq_arb.io.out.valid
-//
-//   io.memreq.bits := memreq_bits_reg
-//   io.memreq.valid := memreq_valid_reg
-//
-//   //memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
-//   //memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
-//   load_memreq_queue.io.deq.ready := !io.laq_full & !mem_order(0) & !mem_order(1)
-//
-//   //memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
-//   //memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
-//   store_memreq_queue.io.deq.ready := !io.stq_full & mem_order(0) & !mem_order(1)
-//
-//   load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
-//   load_memreq_queue.io.enq.bits.is_load := true.B
-//   load_memreq_queue.io.enq.bits.is_store := false.B
-//   load_memreq_queue.io.enq.bits.tag := 10.U
-//   load_memreq_queue.io.enq.bits.data := 0.U
-//   load_memreq_queue.io.enq.bits.mem_cmd := M_XRD
-//
-//   store_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
-//   store_memreq_queue.io.enq.bits.is_load := false.B
-//   store_memreq_queue.io.enq.bits.is_store := true.B
-//   store_memreq_queue.io.enq.bits.tag := 20.U
-//   store_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
-//   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
-//
-//   load_memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid
-//   store_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid
-//   simple.io.mem_p0_addr.ready := load_memreq_queue.io.enq.ready
-//   simple.io.mem_p1_addr.ready := store_memreq_queue.io.enq.ready
-//   simple.io.mem_p1_data_out.ready := store_memreq_queue.io.enq.ready
-//
-//   simple.io.mem_p0_data_in.valid := (io.memresp.bits.tag === 10.U) & io.memresp.valid
-//   simple.io.mem_p0_data_in.bits := io.memresp.bits.data
+   when (load_memreq_queue.io.deq.valid && load_memreq_queue.io.deq.ready) {
+     //mem_order(0) := true.B
+     memreq_bits_reg := load_memreq_queue.io.deq.bits
+     memreq_valid_reg := load_memreq_queue.io.deq.valid
+     memreq_rob_idx_reg := load_memreq_queue.io.deq.bits.tag + orig_rob_tail_reg
+     memreq_ldq_idx_reg := load_memreq_queue.io.deq.bits.tag >> 1.U
+   }
+   .elsewhen (store_memreq_queue.io.deq.valid && store_memreq_queue.io.deq.ready) {
+     //mem_order(1) := true.B
+     memreq_bits_reg := store_memreq_queue.io.deq.bits
+     memreq_valid_reg := store_memreq_queue.io.deq.valid
+     memreq_rob_idx_reg := store_memreq_queue.io.deq.bits.tag + orig_rob_tail_reg
+     memreq_stq_idx_reg := store_memreq_queue.io.deq.bits.tag >> 1.U
+   }
+   .otherwise {
+     memreq_valid_reg := false.B
+   }
+   //io.memreq.bits := memreq_arb.io.out.bits
+   //io.memreq.valid := memreq_arb.io.out.valid
+
+   io.memreq.bits := memreq_bits_reg
+   io.memreq.valid := memreq_valid_reg
+   io.memreq_rob_idx := memreq_rob_idx_reg
+   io.memreq_ldq_idx := memreq_ldq_idx_reg
+   io.memreq_stq_idx := memreq_stq_idx_reg
+
+   //memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
+   //load_memreq_queue.io.deq.ready := !io.laq_full & !mem_order(0) & !mem_order(1)
+   load_memreq_queue.io.deq.ready := (load_memreq_queue.io.deq.bits.tag < memInstrCnt) && (stallCnt(0) === 0.U)
+
+   //memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
+   //memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid
+   //store_memreq_queue.io.deq.ready := !io.stq_full & mem_order(0) & !mem_order(1)
+   store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag < memInstrCnt) && (stallCnt(0) === 1.U)
+
+   load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
+   load_memreq_queue.io.enq.bits.is_load := true.B
+   load_memreq_queue.io.enq.bits.is_store := false.B
+   load_memreq_queue.io.enq.bits.tag := simple.io.mem_p0_addr_tag
+   load_memreq_queue.io.enq.bits.data := 0.U
+   load_memreq_queue.io.enq.bits.mem_cmd := M_XRD
+
+   store_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
+   store_memreq_queue.io.enq.bits.is_load := false.B
+   store_memreq_queue.io.enq.bits.is_store := true.B
+   store_memreq_queue.io.enq.bits.tag := simple.io.mem_p1_addr_tag
+   store_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
+   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+
+   load_memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid
+   store_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid
+   simple.io.mem_p0_addr.ready := load_memreq_queue.io.enq.ready
+   simple.io.mem_p1_addr.ready := store_memreq_queue.io.enq.ready
+   simple.io.mem_p1_data_out.ready := store_memreq_queue.io.enq.ready
+
+   simple.io.mem_p0_data_in.valid := (io.memresp.bits.tag === simple.io.mem_p0_data_in_tag) & io.memresp.valid
+   simple.io.mem_p0_data_in.bits := io.memresp.bits.data
 
    //simple.io.mem_p1_data_out.valid := (io.memresp.bits.tag === 20.U) & io.memresp.valid
-
-   // stall for 200 cycles
-   // TODO(aryap): Remove, in favour of actual return instruction when done.
-   //when (stallCnt === 1000.U) {
-   //}
 
    printf("\n")
    for (i <- 0 to numRegisters - 1) {
@@ -454,9 +423,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            simple.io.mem_p0_addr.valid=%d,
            simple.io.mem_p1_addr.valid=%d,
            io.laq_full=%d, io.stq_full=%d,
-           mem_order(0)=%d, mem_order(1)=%d,
-           io.memreq.bits.ldq_idx=%d, io.memreq.bits.stq_idx=%d
-           memCnt=%d, memCnt1=%d, io.memreq.bits.rob_idx=%d, io.execute_mem_inst=%d
+           io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d
+           memInstrCnt=%d,
+           simple.io.mem_p0_addr_tag=%d, simple.io.mem_p0_data_in_tag=%d,
+           simple.io.mem_p1_addr_tag=%d,
+           io.rob_flush=%d, io.rob_empty=%d, rob_flush_start=%d
      """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
@@ -473,9 +444,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      simple.io.mem_p0_addr.valid,
      simple.io.mem_p1_addr.valid,
      io.laq_full, io.stq_full,
-     mem_order(0), mem_order(1),
-     io.memreq.bits.ldq_idx, io.memreq.bits.stq_idx,
-     memCnt, memCnt1, io.memreq.bits.rob_idx, io.execute_mem_inst
+     io.memreq_rob_idx, io.memreq_ldq_idx, io.memreq_stq_idx,
+     memInstrCnt,
+     simple.io.mem_p0_addr_tag, simple.io.mem_p0_data_in_tag,
+     simple.io.mem_p1_addr_tag,
+     io.rob_flush, io.rob_empty, rob_flush_start
    )
    printf("\n")
 

@@ -17,10 +17,14 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     val RegA6 = Input(UInt(dataWidth.W)) // n
 
     val mem_p0_addr = new DecoupledIO(UInt(addrWidth.W))
+    val mem_p0_addr_tag = Output(UInt(32.W))
     val mem_p0_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
+    val mem_p0_data_in_tag = Output(UInt(32.W))
 
     val mem_p1_addr = new DecoupledIO(UInt(addrWidth.W))
+    val mem_p1_addr_tag = Output(UInt(32.W))
     val mem_p1_data_out = new DecoupledIO(UInt(addrWidth.W))
+    val mem_p1_data_out_tag = Output(UInt(32.W))
   })
 
   val m0 = Module(new Merge(2, dataWidth))
@@ -123,9 +127,15 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   io.mem_p0_addr.bits := ld0.io.mem_addr.bits
   ld0.io.mem_data_in.bits := io.mem_p0_data_in.bits
 
+  io.mem_p0_addr_tag := ld0.io.mem_addr_tag
+  io.mem_p0_data_in_tag := ld0.io.mem_data_in_tag
+
   io.mem_p1_addr.bits := st0.io.mem_addr.bits
   io.mem_p1_data_out.bits := st0.io.mem_data_out.bits
-        
+
+  io.mem_p1_addr_tag := st0.io.mem_addr_tag
+  io.mem_p1_data_out_tag := st0.io.mem_data_out_tag
+
   // Control
   m0.io.in(0).valid := start_reg
   m0.io.in(1).valid := b0.io.out(1).valid
