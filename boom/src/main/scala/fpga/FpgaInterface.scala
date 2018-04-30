@@ -265,25 +265,17 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // TODO: should use the done signal from the kernel here ... Have to figure
    // out when is safe to set the done signal (e.g. wait until all outstanding
    // memory transactions complete)
-   //when (simple.io.done) {
-   when (stallCnt === 800.U) { // fake done signal
+   // For now simply waiting for 100 cycles before flushing ROB
+   val doneCnt = Reg(init = UInt(0, 32))
+   val doneValid = Reg(init = Bool(false))
+   when (doneCnt === 100.U && !doneValid) {
+     doneCnt := 0.U
+     doneValid := true.B
      rob_flush_start := true.B
    }
-
-//   val endCnt = Reg(init = UInt(0, 32))
-//   val endStart = Reg(init = Bool(false))
-//   when (simple.io.done) {
-//     endStart := true.B
-//   }
-//
-//   when (endCnt === 200.U) {
-//     endCnt := 0.U
-//     endStart := false.B
-//     rob_flush_start := true.B
-//   }
-//   .elsewhen (endStart) {
-//     endCnt := endCnt + 1.U
-//   }
+   .elsewhen (simple.io.done && !doneValid) {
+     doneCnt := doneCnt + 1.U
+   }
 
 
    when (!rob_flush_start_delayed && rob_flush_start) {
