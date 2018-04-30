@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "util.h"
 
-#define SIZE 100
+#define SIZE 1000
 typedef int DATATYPE;
 
 __attribute__ ((noinline)) int test(DATATYPE *arr1, DATATYPE *arr2,
