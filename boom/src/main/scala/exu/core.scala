@@ -376,6 +376,10 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.memresp.bits.data := exe_units.memory_unit.io.resp(0).bits.data
    fpga.io.memresp.bits.tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
 
+   fpga.io.curr_rob_mem_tag := rob.io.enq_uops(0).pc
+   printf("ROB check current PC: io.get_pc.curr_pc=%d, rob_enq_pc=%d, rob_enq_val=%d\n",
+     rob.io.get_pc.curr_pc, rob.io.enq_uops(0).pc, rob.io.enq_valids(0))
+
    //-------------------------------------------------------------
    //-------------------------------------------------------------
    // **** Branch Prediction ****
