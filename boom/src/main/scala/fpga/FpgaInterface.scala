@@ -167,7 +167,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // PC value of the jump_to_kernel instruction: 0x0080001bb0
    // check: $TOPDIR/install/riscv-bmarks/simple.riscv.dump
-   when (io.currentPC(15, 0) === UInt(0x1bb0)) {
+   when (io.currentPC(15, 0) === UInt(0x1c04)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
@@ -348,8 +348,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    memreq_arb.io.out.ready := true.B
 
    io.memreq_rob_idx := memreq_arb.io.out.bits.tag + orig_rob_tail_reg
-   io.memreq_ldq_idx := memreq_arb.io.out.bits.tag  >> 1.U
-   io.memreq_stq_idx := memreq_arb.io.out.bits.tag  >> 1.U
+   io.memreq_ldq_idx := (memreq_arb.io.out.bits.tag  >> 1.U) + orig_ldq_tail_reg
+   io.memreq_stq_idx := (memreq_arb.io.out.bits.tag  >> 1.U) + orig_stq_tail_reg
 
    memreq_arb.io.in(0).bits := load_memreq_queue.io.deq.bits
    memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid
