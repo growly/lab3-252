@@ -136,7 +136,6 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // TAN: When FPGA is running, we stall the entire fetch unit (front-end)
    val if_stalled = io.fpga_runnable | !(FetchBuffer.io.enq.ready) // if FetchBuffer backs up, we have to stall the front-end
    io.stalled := if_stalled
-   printf("FETCH stall? %d\n", io.stalled)
 
    val f0_redirect_val =
       br_unit.take_pc ||
@@ -146,7 +145,7 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
       (io.f2_bpu_request.valid && !if_stalled && io.imem.resp.valid) ||
       (f3_req.valid && !if_stalled) // TODO this seems way too low-level to get backpressure signal correct
 
-   io.imem.req.valid   := f0_redirect_val // tell front-end we had an unexpected change in the stream
+   io.imem.req.valid   := f0_redirect_val && !io.fpga_runnable // tell front-end we had an unexpected change in the stream
    io.imem.req.bits.pc := f0_redirect_pc
    io.imem.req.bits.speculative := !(io.flush_take_pc)
    io.imem.resp.ready  := !(if_stalled)
@@ -621,6 +620,15 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    //-------------------------------------------------------------
    // **** Printfs ****
    //-------------------------------------------------------------
+
+   printf("\n")
+   printf("""[FETCH] io.stalled=%d, io.fetch_from_fpga_pc=0x%x, io.fetch_from_fpga_inst=0x%x,
+     io.fetch_from_fpga_valid=%d,
+     io.fetch_from_fpga_ready=%d""",
+     io.stalled, io.fetch_from_fpga_pc, io.fetch_from_fpga_inst,
+     io.fetch_from_fpga_valid,
+     io.fetch_from_fpga_ready)
+   printf("\n")
 
    if (DEBUG_PRINTF)
    {
