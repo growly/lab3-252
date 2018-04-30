@@ -102,6 +102,8 @@ class RobIo(machine_width: Int,
    val debug = new DebugRobSignals().asOutput
 
    val debug_tsc = UInt(INPUT, xLen)
+
+   val fpga_rob_flush   = Bool(INPUT)
 }
 
 
@@ -427,9 +429,8 @@ class Rob(width: Int,
             val cidx = GetRowIdx(clr_rob_idx)
             rob_bsy(cidx) := Bool(false)
 
-            // FIXME (TAN) what if we disable these assertions ...
-            //assert (rob_val(cidx) === Bool(true), "[rob] store writing back to invalid entry.")
-            //assert (rob_bsy(cidx) === Bool(true), "[rob] store writing back to a not-busy entry.")
+            assert (rob_val(cidx) === Bool(true), "[rob] store writing back to invalid entry.")
+            assert (rob_bsy(cidx) === Bool(true), "[rob] store writing back to a not-busy entry.")
 
             if (O3PIPEVIEW_PRINTF)
             {
@@ -576,14 +577,15 @@ class Rob(width: Int,
             rob_uop(GetRowIdx(rob_idx)).debug_wdata := io.debug_wb_wdata(i)
          }
          val temp_uop = rob_uop(GetRowIdx(rob_idx))
+         assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
+                     !rob_val(GetRowIdx(rob_idx))),
+                  "[rob] writeback (" + i + ") occurred to an invalid ROB entry.")
+         assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
+                     !rob_bsy(GetRowIdx(rob_idx))),
+                  "[rob] writeback (" + i + ") occurred to a not-busy ROB entry.")
          // TAN: FIXME: what if we ignore these assertions ...
-         // Note that we do not touch ROB when serving memory requests from FPGA
-         //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
-         //            !rob_val(GetRowIdx(rob_idx))),
-         //         "[rob] writeback (" + i + ") occurred to an invalid ROB entry.")
-         //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
-         //            !rob_bsy(GetRowIdx(rob_idx))),
-         //         "[rob] writeback (" + i + ") occurred to a not-busy ROB entry.")
+         // Note that the writeback info is irrelevant to memory instructions
+         // issued by the FPGA because we do not dispatch them to ExeUnit
          //assert (!(io.wb_resps(i).valid && MatchBank(GetBankIdx(rob_idx)) &&
          //         temp_uop.ldst_val && temp_uop.pdst =/= io.wb_resps(i).bits.uop.pdst),
          //         "[rob] writeback (" + i + ") occurred to the wrong pdst.")
@@ -655,9 +657,11 @@ class Rob(width: Int,
                    Mux(refetch_inst, UInt(0), UInt(4))
    io.com_xcpt.bits.pc := flush_pc
 
+   // TAN: the FPGA can also request to flush the ROB
    val flush_val = exception_thrown ||
                      io.csr_eret ||
-                     (Range(0,width).map{i => io.commit.valids(i) && io.commit.uops(i).flush_on_commit}).reduce(_|_)
+                     (Range(0,width).map{i => io.commit.valids(i) && io.commit.uops(i).flush_on_commit}).reduce(_|_) ||
+                     io.fpga_rob_flush
 
    // delay a cycle for critical path considerations
    io.flush.valid := RegNext(flush_val)
@@ -820,10 +824,14 @@ class Rob(width: Int,
 
    io.ready := (rob_state === s_normal) && !full
 
+   printf("ROB state: %d, rob_flush: %d\n", rob_state, io.fpga_rob_flush)
+
    //-----------------------------------------------
    //-----------------------------------------------
    //-----------------------------------------------
 
+   // TAN: when the FPGA wants to flush the ROB, we want it to rollback
+   // all the garbage memory instructions
    // ROB FSM
    if (!ENABLE_COMMIT_MAP_TABLE)
    {
@@ -835,7 +843,7 @@ class Rob(width: Int,
          }
          is (s_normal)
          {
-            when (exception_thrown)
+            when (exception_thrown || io.fpga_rob_flush)
             {
                rob_state := s_rollback
             }
@@ -859,7 +867,7 @@ class Rob(width: Int,
          }
          is (s_wait_till_empty)
          {
-            when (exception_thrown)
+            when (exception_thrown || io.fpga_rob_flush)
             {
                rob_state := s_rollback
             }

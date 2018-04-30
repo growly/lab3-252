@@ -334,30 +334,23 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fetch_unit.io.fetch_from_fpga_inst := fpga.io.fetch_inst
    fetch_unit.io.fetch_from_fpga_valid := fpga.io.fetch_valid
    fetch_unit.io.fetch_from_fpga_pc := fpga.io.fetch_pc
-   fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready &&
-                          !lsu.io.laq_full &&
-                          !lsu.io.stq_full &&
-                          rob.io.ready
+   fpga.io.fetch_ready := fetch_unit.io.fetch_from_fpga_ready
 
    // TAN: Here we assign commit signals to the FPGA.
    // This should be used for getting data from register file.
    fpga.io.rob_valid := rob.io.wb_resps(1).valid // from integer ALU
    fpga.io.rob_data := rob.io.wb_resps(1).bits.data // from integer ALU
+   fpga.io.rob_empty := rob.io.empty
+   rob.io.fpga_rob_flush := fpga.io.rob_flush
 
    fpga.io.orig_rob_tail := rob.io.curr_rob_tail
    fpga.io.orig_ldq_tail := lsu.io.new_ldq_idx
    fpga.io.orig_stq_tail := lsu.io.new_stq_idx
 
-   lsu.io.fpga_memreq_valid := fpga.io.memreq.valid
-   lsu.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
-   lsu.io.fpga_memreq_is_load := fpga.io.memreq.bits.is_load
-   lsu.io.fpga_memreq_is_store := fpga.io.memreq.bits.is_store
    fpga.io.laq_full := lsu.io.laq_full
    fpga.io.stq_full := lsu.io.stq_full
-   lsu.io.fpga_runnable := fpga.io.runnable
 
-   //exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
-   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.execute_mem_inst
+   exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
 
    exe_units.memory_unit.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
 
@@ -376,7 +369,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    exe_units.memory_unit.io.fpga_exe_resp.uop.mem_cmd := fpga.io.memreq.bits.mem_cmd
 
-   exe_units.memory_unit.io.fpga_exe_resp.uop.rob_idx := fpga.io.memreq.bits.rob_idx
+   exe_units.memory_unit.io.fpga_exe_resp.uop.rob_idx := fpga.io.memreq_rob_idx
    // TAN: Here we assign memory response signals to the FPGA
    // We use the tag to distinguish the memory requests
    fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
@@ -541,18 +534,14 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    // TAN: we pass current load queue index and store queue index
    // to the memory unit, so that the LSU can operate in normal order.
-   // Again, we have to do this because we do not inject any uop for
+   // We have to do this because we do not inject any uop for
    // the load/store request in the Decode stage
-//   exe_units.memory_unit.io.fpga_ldq_idx := new_lidx
-//   exe_units.memory_unit.io.fpga_stq_idx := new_sidx
-//   lsu.io.fpga_ldq_idx := new_lidx
-//   lsu.io.fpga_stq_idx := new_sidx
-   exe_units.memory_unit.io.fpga_ldq_idx := fpga.io.memreq.bits.ldq_idx
-   exe_units.memory_unit.io.fpga_stq_idx := fpga.io.memreq.bits.stq_idx
+   exe_units.memory_unit.io.fpga_ldq_idx := fpga.io.memreq_ldq_idx
+   exe_units.memory_unit.io.fpga_stq_idx := fpga.io.memreq_stq_idx
 
    printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",
-     fpga.io.memreq.bits.ldq_idx,
-     fpga.io.memreq.bits.stq_idx)
+     fpga.io.memreq_ldq_idx,
+     fpga.io.memreq_stq_idx)
 
    //-------------------------------------------------------------
    // Rob Allocation Logic
