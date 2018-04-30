@@ -71,7 +71,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       //val start            = Bool(INPUT)
    })
 
-   val internalReset = RegInit(false.B)
+   val internalReset = Reg(init = Bool(false))
 
    // We want to successively repalce 'src1' in the ADD instruction:
    //  imm           src1  fn3 rd    opcode
@@ -131,25 +131,25 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // Register data.
    val registers = Reg(Vec(numRegisters, UInt(xLen.W)))
 
-   val fetchStart = RegInit(false.B)
-   val fetchReqDone = RegInit(false.B)
-   val fetchRespDone = RegInit(false.B)
-   val fetch_pc_reg = RegInit(0.U(vaddrBitsExtended.W))
-   val orig_pc_reg = RegInit(0.U(vaddrBitsExtended.W))
+   val fetchStart = Reg(init = Bool(false))
+   val fetchReqDone = Reg(init = Bool(false))
+   val fetchRespDone = Reg(init = Bool(false))
+   val fetch_pc_reg = Reg(init = UInt(0, vaddrBitsExtended))
+   val orig_pc_reg = Reg(init = UInt(0, vaddrBitsExtended))
 
    val regReqIdx = Reg(init = UInt(0, log2Up(numRegisters)))
    val regRespIdx = Reg(init = UInt(0, log2Up(numRegisters)))
 
    // Control the overall user logic state.
-   val userStart = RegInit(false.B)
-   val userDone = RegInit(false.B) // Wire(Bool())
+   val userStart = Reg(init = Bool(false))
+   val userDone = Reg(init = Bool(false)) // Wire(Bool())
 
-   val stallCnt = RegInit(0.U(32.W))
-   val runnable_reg = RegInit(false.B)
-   val fetch_inst_reg = RegInit(0.U(xLen.W))
-   val fetch_valid_reg = RegInit(false.B)
+   val stallCnt = Reg(init = UInt(0, 32))
+   val runnable_reg = Reg(init = Bool(false))
+   val fetch_inst_reg = Reg(init = UInt(0, xLen))
+   val fetch_valid_reg = Reg(init = Bool(false))
 
-   val resetInternal = RegInit(false.B)
+   val resetInternal = Reg(init = Bool(false))
 
    val fetch_mem_inst_reg = Reg(init = Bool(false))
    val fetch_mem_inst_start = Reg(init = Bool(false))
@@ -223,7 +223,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // Once after we're done and the CPU is ready for an instruction, we feed in
    // the return jump to continue execution.
-   val returnIdx = RegInit(0.U(log2Up(numReturnInstrs).W))
+   val returnIdx = Reg(init = UInt(0, log2Up(numReturnInstrs)))
    when (userDone && io.fetch_ready) {
       when (returnIdx < numReturnInstrs.U) {
          fetch_valid_reg := true.B
@@ -295,7 +295,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      rob_flush_start := false.B
    }
 
-   val userStart_delayed = RegInit(false.B)
+   val userStart_delayed = Reg(init = Bool(false))
    userStart_delayed := userStart
 
    val fetchRespDone_delayed = Reg(init = false.B)

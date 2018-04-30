@@ -1,12 +1,12 @@
 package boom
 
-import chisel3._
-import chisel3.util._
+import Chisel._
 
 class FIFO_wrapper(width: Int, depth: Int) extends Module {
   val io = IO(new Bundle {
     val in = new DecoupledIO(UInt(width.W)).flip()
     val out = new DecoupledIO(UInt(width.W))
+
   })
 
   val queue = Module(new Queue(UInt(width.W), depth))
@@ -18,4 +18,5 @@ class FIFO_wrapper(width: Int, depth: Int) extends Module {
   io.out.bits <> queue.io.deq.bits
   io.out.valid <> queue.io.deq.valid
   queue.io.deq.ready <> io.out.ready
+
 }

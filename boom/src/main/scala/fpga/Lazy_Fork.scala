@@ -1,12 +1,12 @@
 package boom
 
-import chisel3._
-import chisel3.util._
+import Chisel._
 
 class Lazy_Fork(num_ports: Int, width: Int) extends Module {
   val io = IO(new Bundle {
     val in = new DecoupledIO(UInt(width.W)).flip()
     val out = Vec(num_ports, new DecoupledIO(UInt(width.W)))
+
   })
 
   // Datapath

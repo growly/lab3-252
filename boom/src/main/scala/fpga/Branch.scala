@@ -1,13 +1,13 @@
 package boom
 
-import chisel3._
-import chisel3.util._
+import Chisel._
 
 class Branch(width: Int) extends Module {
   val io = IO(new Bundle {
-    val in = new DecoupledIO(UInt(width.W)).flip()
-    val cond = Input(Bool()) // 0: first input, 1: second input
-    val out = Vec(2, new DecoupledIO(UInt(width.W)))
+    val in   = new DecoupledIO(UInt(width.W)).flip()
+    val cond = Bool(INPUT) // 0: first input, 1: second input
+    val out  = Vec(2, new DecoupledIO(UInt(width.W)))
+
   })
 
   // Datapath

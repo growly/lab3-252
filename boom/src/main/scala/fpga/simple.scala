@@ -1,39 +1,38 @@
 package boom
 
-import chisel3._
-import chisel3.util._
+import Chisel._
 
 class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val io = IO(new Bundle {
-    val start = Input(Bool())
-    val done = Output(Bool())
+    val start = Bool(INPUT)
+    val done = Bool(OUTPUT)
 
-    val RegA0 = Input(UInt(dataWidth.W)) // &arr1[0]
-    val RegA1 = Input(UInt(dataWidth.W)) // &arr2[0]
-    val RegA2 = Input(UInt(dataWidth.W)) // k
-    val RegA3 = Input(UInt(dataWidth.W)) // x
-    val RegA4 = Input(UInt(dataWidth.W)) // y
-    val RegA5 = Input(UInt(dataWidth.W)) // z
-    val RegA6 = Input(UInt(dataWidth.W)) // n
+    val RegA0 = UInt(INPUT, dataWidth) // &arr1[0]
+    val RegA1 = UInt(INPUT, dataWidth) // &arr2[0]
+    val RegA2 = UInt(INPUT, dataWidth) // k
+    val RegA3 = UInt(INPUT, dataWidth) // x
+    val RegA4 = UInt(INPUT, dataWidth) // y
+    val RegA5 = UInt(INPUT, dataWidth) // z
+    val RegA6 = UInt(INPUT, dataWidth) // n
 
     val mem_p0_addr = new DecoupledIO(UInt(addrWidth.W))
-    val mem_p0_addr_tag = Output(UInt(32.W))
+    val mem_p0_addr_tag = UInt(OUTPUT, 32)
     val mem_p0_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
-    val mem_p0_data_in_tag = Output(UInt(32.W))
+    val mem_p0_data_in_tag = UInt(OUTPUT, 32)
 
     val mem_p1_addr = new DecoupledIO(UInt(addrWidth.W))
-    val mem_p1_addr_tag = Output(UInt(32.W))
+    val mem_p1_addr_tag = UInt(OUTPUT, 32)
     val mem_p1_data_out = new DecoupledIO(UInt(addrWidth.W))
-    val mem_p1_data_out_tag = Output(UInt(32.W))
+    val mem_p1_data_out_tag = UInt(OUTPUT, 32)
   })
 
   val m0 = Module(new Merge(2, dataWidth))
   val fifo0 = Module(new FIFO_wrapper(dataWidth, 2))
   val ef0 = Module(new Eager_Fork(3, dataWidth))
   val ef1 = Module(new Eager_Fork(2, dataWidth))
-  val ld0 = Module(new Load(addrWidth, dataWidth))
+  val ld0 = Module(new Load(addrWidth, dataWidth, 0, 2))
   val j0 = Module(new Join(2, dataWidth))
-  val st0 = Module(new Store(addrWidth, dataWidth))
+  val st0 = Module(new Store(addrWidth, dataWidth, 1, 2))
   val b0 = Module(new Branch(dataWidth))
 
   printf("""[simple]
@@ -103,7 +102,7 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   )
 
   // One cycle start signal for the circuit
-  val start_reg = RegInit(Bool(), false.B)
+  val start_reg = Reg(init = Bool(false))
   when (start_reg) {
     start_reg := false.B
   } .elsewhen (io.start) {
