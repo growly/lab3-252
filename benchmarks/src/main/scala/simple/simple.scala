@@ -1,6 +1,7 @@
-package boom
+package benchmarks.simple
 
 import Chisel._
+import elastic._
 
 class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val io = IO(new Bundle {

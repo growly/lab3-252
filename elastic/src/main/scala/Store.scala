@@ -1,4 +1,4 @@
-package boom
+package elastic
 
 import Chisel._
 

@@ -2,6 +2,7 @@ package boom
 
 import Chisel._
 
+import benchmarks.simple._
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
