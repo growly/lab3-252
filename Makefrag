@@ -79,7 +79,7 @@ benchmarks = \
 	vvadd \
 
 example = \
-  simple \
+  histogram \
 
 output_dir=$(sim_dir)/output
 
