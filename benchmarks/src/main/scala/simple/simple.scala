@@ -31,9 +31,9 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val fifo0 = Module(new FIFO_wrapper(dataWidth, 2))
   val ef0 = Module(new Eager_Fork(3, dataWidth))
   val ef1 = Module(new Eager_Fork(2, dataWidth))
-  val ld0 = Module(new Load(addrWidth, dataWidth, 0, 2))
+  val ld0 = Module(new Load(addrWidth, dataWidth, 0, 2, 0, 1))
   val j0 = Module(new Join(2, dataWidth))
-  val st0 = Module(new Store(addrWidth, dataWidth, 1, 2))
+  val st0 = Module(new Store(addrWidth, dataWidth, 1, 2, 0, 1))
   val b0 = Module(new Branch(dataWidth))
 
   printf("""[simple]
