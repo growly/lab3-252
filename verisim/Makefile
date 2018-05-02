@@ -105,6 +105,6 @@ benchmark-stats: $(base_dir)/bmark-stats.sh $(BMARK_OUT_FILES)
 	$< $(BMARK_OUT_FILES)
 
 clean:
-	rm -rf generated-src ./simulator-* output
+	rm -rf generated-src ./simulator-* output *.log
 	
 .PHONY: clean run-regression-tests run-regression-tests-fast run-regression-tests-debug run-benchmarks benchmark-stats
