@@ -359,11 +359,14 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    exe_units.memory_unit.io.fpga_exe_resp.uop.is_load := fpga.io.memreq.bits.is_load
    exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq.bits.is_load
 
-   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
+   //exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_sta ||
+                                                          fpga.io.memreq.bits.is_std
+
    // TAN: for now, is_sta and is_std are set to HIGH at the same time
    // TODO: would it make sense to separate them, for performance reason?
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_store
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq.bits.is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_sta
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq.bits.is_std
 
    exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 

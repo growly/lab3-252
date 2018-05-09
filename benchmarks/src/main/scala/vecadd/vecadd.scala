@@ -29,7 +29,8 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     val mem_p2_addr_tag = UInt(OUTPUT, 32)
     val mem_p2_data_out = new DecoupledIO(UInt(addrWidth.W))
     val mem_p2_data_out_tag = UInt(OUTPUT, 32)
-    val mem_p2_store_idx = UInt(OUTPUT, 32)
+    val mem_p2_sta_idx = UInt(OUTPUT, 32)
+    val mem_p2_std_idx = UInt(OUTPUT, 32)
 
   })
 
@@ -186,7 +187,8 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   io.mem_p2_addr_tag := st0.io.mem_addr_tag
   io.mem_p2_data_out_tag := st0.io.mem_data_out_tag
-  io.mem_p2_store_idx := st0.io.mem_store_idx
+  io.mem_p2_sta_idx := st0.io.mem_sta_idx
+  io.mem_p2_std_idx := st0.io.mem_std_idx
 
   // Control
   m0.io.in(0).valid := start_reg
