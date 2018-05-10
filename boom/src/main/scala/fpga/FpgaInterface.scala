@@ -271,7 +271,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // For now simply waiting for 100 cycles before flushing ROB
    val doneCnt = Reg(init = UInt(0, 32))
    val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 100.U && !doneValid) {
+   when (doneCnt === 1000.U && !doneValid) {
      doneCnt := 0.U
      doneValid := true.B
      rob_flush_start := true.B
@@ -342,9 +342,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    io.fetch_mem_inst := fetch_mem_inst_reg
 
-   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 2))
-   val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 3))
+   val load_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
 
    io.memreq.bits := memreq_arb.io.out.bits
    io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
@@ -358,9 +359,15 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    memreq_arb.io.in(0).valid := load_memreq_queue.io.deq.valid && (load_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
    load_memreq_queue.io.deq.ready := (load_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(0).valid && memreq_arb.io.in(0).ready
 
-   memreq_arb.io.in(1).bits := store_memreq_queue.io.deq.bits
-   memreq_arb.io.in(1).valid := store_memreq_queue.io.deq.valid && (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
+   memreq_arb.io.in(1).bits := store_addr_memreq_queue.io.deq.bits
+   memreq_arb.io.in(1).valid := store_addr_memreq_queue.io.deq.valid && (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
+   store_addr_memreq_queue.io.deq.ready := (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+                                           memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
+
+   memreq_arb.io.in(2).bits := store_data_memreq_queue.io.deq.bits
+   memreq_arb.io.in(2).valid := store_data_memreq_queue.io.deq.valid && (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
+   store_data_memreq_queue.io.deq.ready := (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+                                           memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
 
    load_memreq_queue.io.enq.bits.addr := simple.io.mem_p0_addr.bits
    load_memreq_queue.io.enq.bits.is_load := true.B
@@ -368,27 +375,33 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    load_memreq_queue.io.enq.bits.is_std := false.B
    load_memreq_queue.io.enq.bits.tag := simple.io.mem_p0_addr_tag
    load_memreq_queue.io.enq.bits.lsu_idx := simple.io.mem_p0_load_idx
-   load_memreq_queue.io.enq.bits.data := 0.U
+   load_memreq_queue.io.enq.bits.data := 0.U // does not matter for load
    load_memreq_queue.io.enq.bits.mem_cmd := M_XRD
 
-   store_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
-   store_memreq_queue.io.enq.bits.is_load := false.B
-   store_memreq_queue.io.enq.bits.is_sta := simple.io.mem_p1_addr.valid
-   store_memreq_queue.io.enq.bits.is_std := simple.io.mem_p1_data_out.valid
-   store_memreq_queue.io.enq.bits.tag := Mux(simple.io.mem_p1_addr.valid,
-                                           simple.io.mem_p1_addr_tag,
-                                           simple.io.mem_p1_data_out_tag)
-   store_memreq_queue.io.enq.bits.lsu_idx := Mux(simple.io.mem_p1_addr.valid,
-                                           simple.io.mem_p1_sta_idx,
-                                           simple.io.mem_p1_std_idx)
-   store_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
-   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+   store_addr_memreq_queue.io.enq.bits.addr := simple.io.mem_p1_addr.bits
+   store_addr_memreq_queue.io.enq.bits.is_load := false.B
+   store_addr_memreq_queue.io.enq.bits.is_sta := true.B
+   store_addr_memreq_queue.io.enq.bits.is_std := false.B
+   store_addr_memreq_queue.io.enq.bits.tag := simple.io.mem_p1_addr_tag
+   store_addr_memreq_queue.io.enq.bits.lsu_idx := simple.io.mem_p1_sta_idx
+   store_addr_memreq_queue.io.enq.bits.data := 0.U // does not matter for store address
+   store_addr_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+
+   store_data_memreq_queue.io.enq.bits.addr := 0.U // does not matter for store data
+   store_data_memreq_queue.io.enq.bits.is_load := false.B
+   store_data_memreq_queue.io.enq.bits.is_sta := false.B
+   store_data_memreq_queue.io.enq.bits.is_std := true.B
+   store_data_memreq_queue.io.enq.bits.tag := simple.io.mem_p1_data_out_tag
+   store_data_memreq_queue.io.enq.bits.lsu_idx := simple.io.mem_p1_std_idx
+   store_data_memreq_queue.io.enq.bits.data := simple.io.mem_p1_data_out.bits
+   store_data_memreq_queue.io.enq.bits.mem_cmd := M_XWR
 
    load_memreq_queue.io.enq.valid := simple.io.mem_p0_addr.valid
-   store_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid || simple.io.mem_p1_data_out.valid
+   store_addr_memreq_queue.io.enq.valid := simple.io.mem_p1_addr.valid
+   store_data_memreq_queue.io.enq.valid := simple.io.mem_p1_data_out.valid
    simple.io.mem_p0_addr.ready := load_memreq_queue.io.enq.ready
-   simple.io.mem_p1_addr.ready := store_memreq_queue.io.enq.ready
-   simple.io.mem_p1_data_out.ready := store_memreq_queue.io.enq.ready
+   simple.io.mem_p1_addr.ready := store_addr_memreq_queue.io.enq.ready
+   simple.io.mem_p1_data_out.ready := store_data_memreq_queue.io.enq.ready
 
    simple.io.mem_p0_data_in.valid := (io.memresp.bits.tag === simple.io.mem_p0_data_in_tag) & io.memresp.valid
    simple.io.mem_p0_data_in.bits := io.memresp.bits.data
@@ -418,20 +431,43 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            simple.io.mem_p1_data_out.valid=%d,
            io.laq_full=%d, io.stq_full=%d,
            load_memreq_queue.io.enq.bits.lsu_idx=%d,
-           store_memreq_queue.io.enq.bits.lsu_idx=%d,
+           store_addr_memreq_queue.io.enq.bits.lsu_idx=%d,
+           store_data_memreq_queue.io.enq.bits.lsu_idx=%d,
            io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d
            memInstrCnt=%d,
            simple.io.mem_p0_addr_tag=%d, simple.io.mem_p0_data_in_tag=%d,
            simple.io.mem_p1_addr_tag=%d,
+           simple.io.mem_p1_data_out_tag=%d,
            io.rob_flush=%d, io.rob_empty=%d, rob_flush_start=%d,
-           memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d,
-           memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d,
+           memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d, memreq_arb.io.in(2).valid=%d,
+           memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d, memreq_arb.io.in(2).ready=%d,
            memreq_arb.io.out.valid=%d, memreq_arb.io.out.ready=%d,
+
+           load_memreq_queue.io.enq.bits.tag=%d,
+           load_memreq_queue.io.enq.valid=%d,
+           load_memreq_queue.io.enq.ready=%d,
+
+           store_addr_memreq_queue.io.enq.bits.tag=%d,
+           store_addr_memreq_queue.io.enq.valid=%d,
+           store_addr_memreq_queue.io.enq.ready=%d,
+
+           store_data_memreq_queue.io.enq.bits.tag=%d,
+           store_data_memreq_queue.io.enq.valid=%d,
+           store_data_memreq_queue.io.enq.ready=%d,
+
            load_memreq_queue.io.deq.bits.tag=%d,
-           store_memreq_queue.io.deq.bits.tag=%d,
+           load_memreq_queue.io.deq.valid=%d,
            load_memreq_queue.io.deq.ready=%d,
-           store_memreq_queue.io.deq.ready=%d,
-           io.curr_rob_mem_tag=%d
+
+           store_addr_memreq_queue.io.deq.bits.tag=%d,
+           store_addr_memreq_queue.io.deq.valid=%d,
+           store_addr_memreq_queue.io.deq.ready=%d,
+
+           store_data_memreq_queue.io.deq.bits.tag=%d,
+           store_data_memreq_queue.io.deq.valid=%d,
+           store_data_memreq_queue.io.deq.ready=%d,
+
+           io.curr_rob_mem_tag=%d,
      """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
@@ -450,19 +486,42 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      simple.io.mem_p1_data_out.valid,
      io.laq_full, io.stq_full,
      load_memreq_queue.io.enq.bits.lsu_idx,
-     store_memreq_queue.io.enq.bits.lsu_idx,
+     store_addr_memreq_queue.io.enq.bits.lsu_idx,
+     store_data_memreq_queue.io.enq.bits.lsu_idx,
      io.memreq_rob_idx, io.memreq_ldq_idx, io.memreq_stq_idx,
      memInstrCnt,
      simple.io.mem_p0_addr_tag, simple.io.mem_p0_data_in_tag,
      simple.io.mem_p1_addr_tag,
+     simple.io.mem_p1_data_out_tag,
      io.rob_flush, io.rob_empty, rob_flush_start,
-     memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid,
-     memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready,
+     memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid, 
+     memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready, memreq_arb.io.in(2).ready,
      memreq_arb.io.out.valid, memreq_arb.io.out.ready,
+
+     load_memreq_queue.io.enq.bits.tag,
+     load_memreq_queue.io.enq.valid,
+     load_memreq_queue.io.enq.ready,
+
+     store_addr_memreq_queue.io.enq.bits.tag,
+     store_addr_memreq_queue.io.enq.valid,
+     store_addr_memreq_queue.io.enq.ready,
+
+     store_data_memreq_queue.io.enq.bits.tag,
+     store_data_memreq_queue.io.enq.valid,
+     store_data_memreq_queue.io.enq.ready,
+
      load_memreq_queue.io.deq.bits.tag,
-     store_memreq_queue.io.deq.bits.tag,
+     load_memreq_queue.io.deq.valid,
      load_memreq_queue.io.deq.ready,
-     store_memreq_queue.io.deq.ready,
+
+     store_addr_memreq_queue.io.deq.bits.tag,
+     store_addr_memreq_queue.io.deq.valid,
+     store_addr_memreq_queue.io.deq.ready,
+
+     store_data_memreq_queue.io.deq.bits.tag,
+     store_data_memreq_queue.io.deq.valid,
+     store_data_memreq_queue.io.deq.ready,
+
      io.curr_rob_mem_tag
    )
    printf("\n")

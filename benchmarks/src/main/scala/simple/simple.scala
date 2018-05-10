@@ -36,7 +36,6 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val ef0 = Module(new Eager_Fork(3, dataWidth))
   val ef1 = Module(new Eager_Fork(2, dataWidth))
   val ld0 = Module(new Load(addrWidth, dataWidth, 0, 2, 0, 1))
-  val j0 = Module(new Join(2, dataWidth))
   val st0 = Module(new Store(addrWidth, dataWidth, 1, 2, 0, 1))
   val b0 = Module(new Branch(dataWidth))
 
@@ -55,10 +54,6 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
     ld0.io.in.bits=0x%x, ld0.io.in.valid=%d,  ld0.io.in.ready=%d,
     ld0.io.out.bits=0x%x, ld.io.out.valid=%d, ld.io.out.ready=%d,
-
-    j0.io.in(0).bits=0x%x, j0.io.in(0).valid=%d, j0.io.in(0).ready=%d,
-    j0.io.in(1).bits=0x%x, j0.io.in(1).valid=%d, j0.io.in(1).ready=%d,
-    j0.io.out.bits(0)=0x%x, j0.io.out.bits(1)=0x%x, j0.io.out.valid=%d, j0.io.out.ready=%d,
 
     st0.io.in(0).bits=0x%x,  st0.io.in(1).bits=0x%x,
     st0.io.in(0).valid=%d, st0.io.in(1).valid=%d,
@@ -89,10 +84,6 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     ld0.io.in.bits, ld0.io.in.valid, ld0.io.in.ready,
     ld0.io.out.bits, ld0.io.out.valid, ld0.io.out.ready,
 
-    j0.io.in(0).bits, j0.io.in(0).valid, j0.io.in(0).ready,
-    j0.io.in(1).bits, j0.io.in(1).valid, j0.io.in(1).ready,
-    j0.io.out.bits(0), j0.io.out.bits(1), j0.io.out.valid, j0.io.out.ready,
-
     st0.io.in(0).bits,  st0.io.in(1).bits, st0.io.in(0).valid, st0.io.in(1).valid,
     st0.io.in(0).ready, st0.io.in(1).ready,
 
@@ -122,11 +113,9 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   ef1.io.in.bits := ef0.io.out(2).bits + io.RegA2 // increment the loop index
   b0.io.cond := ef1.io.out(0).bits < io.RegA6 // compare loop index against N
   b0.io.in.bits := ef1.io.out(1).bits
-  j0.io.in(1).bits := ld0.io.out.bits * io.RegA4 + io.RegA5
+  st0.io.in(1).bits := ld0.io.out.bits * io.RegA4 + io.RegA5 // store data
   ld0.io.in.bits := io.RegA0 + (ef0.io.out(0).bits << 2)
-  j0.io.in(0).bits := io.RegA1 + (ef0.io.out(1).bits << 2)
-  st0.io.in(0).bits := j0.io.out.bits(0) // store addr
-  st0.io.in(1).bits := j0.io.out.bits(1) // store data
+  st0.io.in(0).bits := io.RegA1 + (ef0.io.out(1).bits << 2) // store addr
 
   io.mem_p0_addr.bits := ld0.io.mem_addr.bits
   ld0.io.mem_data_in.bits := io.mem_p0_data_in.bits
@@ -137,11 +126,11 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   io.mem_p1_addr.bits := st0.io.mem_addr.bits
   io.mem_p1_data_out.bits := st0.io.mem_data_out.bits
-  io.mem_p1_sta_idx := st0.io.mem_sta_idx
-  io.mem_p1_std_idx := st0.io.mem_std_idx
 
   io.mem_p1_addr_tag := st0.io.mem_addr_tag
   io.mem_p1_data_out_tag := st0.io.mem_data_out_tag
+  io.mem_p1_sta_idx := st0.io.mem_sta_idx
+  io.mem_p1_std_idx := st0.io.mem_std_idx
 
   // Control
   m0.io.in(0).valid := start_reg
@@ -153,7 +142,7 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   ef0.io.in.valid := fifo0.io.out.valid
   ef0.io.out(0).ready := ld0.io.in.ready
-  ef0.io.out(1).ready := j0.io.in(0).ready
+  ef0.io.out(1).ready := st0.io.in(0).ready
   ef0.io.out(2).ready := ef1.io.in.ready
 
   ef1.io.in.valid := ef0.io.out(2).valid
@@ -167,14 +156,11 @@ class simple(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   b0.io.out(1).ready := m0.io.in(1).ready
 
   ld0.io.in.valid := ef0.io.out(0).valid
-  ld0.io.out.ready := j0.io.in(1).ready
+  ld0.io.out.ready := st0.io.in(1).ready
 
   // Sync store addr and store data
-  j0.io.in(0).valid := ef0.io.out(1).valid
-  j0.io.in(1).valid := ld0.io.out.valid
-  j0.io.out.ready := st0.io.in(0).ready & st0.io.in(1).ready
-  st0.io.in(0).valid := j0.io.out.valid
-  st0.io.in(1).valid := j0.io.out.valid
+  st0.io.in(0).valid := ef0.io.out(1).valid
+  st0.io.in(1).valid := ld0.io.out.valid
 
   io.mem_p0_addr.valid := ld0.io.mem_addr.valid
   ld0.io.mem_addr.ready := io.mem_p0_addr.ready
