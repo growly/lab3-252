@@ -88,6 +88,7 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
 
    // Receive Memory Response
    val memresp            = new ValidIO(new MicroOp()).flip
+   val memresp_data       = UInt(INPUT, xLen)
 
    // Handle Branch Misspeculations
    val brinfo             = new BrResolutionInfo().asInput
@@ -134,6 +135,9 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
 
    val debug_tsc = UInt(INPUT, xLen)     // time stamp counter
 
+   val fpga_memresp_valid = Bool(OUTPUT)
+   val fpga_memresp_data = UInt(OUTPUT, xLen)
+   val fpga_memresp_tag = UInt(OUTPUT, 32)
    override def cloneType: this.type = new LoadStoreUnitIO(pl_width)(p).asInstanceOf[this.type]
 }
 
@@ -160,7 +164,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    val laq_uop            = Reg(Vec(num_ld_entries, new MicroOp()))
    //laq_uop.stq_idx between oldest and youngest (dep_mask can't establish age :( ), "aka store coloring" if you're Intel
 //   val laq_request   = Vec.fill(num_ld_entries) { Reg(resetVal = Bool(false)) } // TODO sleeper load requesting issue to memory (perhaps stores broadcast, sees its store-set finished up)
-
+   val laq_data           = Reg(Vec(num_ld_entries, UInt(width=xLen)))
 
    // track window of stores we depend on
    val laq_st_dep_mask        = Reg(Vec(num_ld_entries, UInt(width = num_st_entries))) // list of stores we might depend (cleared when a store commits)
@@ -202,6 +206,11 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    val live_store_mask = Reg(init = UInt(0, num_st_entries))
    var next_live_store_mask = Mux(clear_store, live_store_mask & ~(UInt(1) << stq_head),
                                                 live_store_mask)
+
+   // TAN: We get the load data from the head of the LAQ
+   io.fpga_memresp_valid := laq_succeeded(laq_head)
+   io.fpga_memresp_data := laq_data(laq_head)
+   io.fpga_memresp_tag := laq_uop(laq_head).pc
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
@@ -860,6 +869,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       when (io.memresp.bits.is_load)
       {
          laq_succeeded(io.memresp.bits.ldq_idx) := Bool(true)
+         laq_data(io.memresp.bits.ldq_idx) := io.memresp_data
       }
       .otherwise
       {
@@ -1328,7 +1338,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
       {
          val t_laddr = laq_addr(i)
          val t_saddr = saq_addr(i)
-         printf("         ldq[%d]=(%c%c%c%c%c%c%c%d) st_dep(%d,m=%x) 0x%x %c %c   saq[%d]=(%c%c%c%c%c%c%c) b:%x 0x%x -> 0x%x %c %c %c %c\n"
+         printf("         ldq[%d]=(%c%c%c%c%c%c%c%d) st_dep(%d,m=%x) 0x%x -> 0x%x %c %c   saq[%d]=(%c%c%c%c%c%c%c) b:%x 0x%x -> 0x%x %c %c %c %c\n"
             , UInt(i, MEM_ADDR_SZ)
             , Mux(laq_allocated(i), Str("V"), Str("-"))
             , Mux(laq_addr_val(i), Str("A"), Str("-"))
@@ -1341,6 +1351,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
             , laq_uop(i).stq_idx // youngest dep-store
             , laq_st_dep_mask(i)
             , t_laddr(19,0)
+            , laq_data(i)
 
             , Mux(laq_head === UInt(i), Str("H"), Str(" "))
             , Mux(laq_tail=== UInt(i), Str("T"), Str(" "))
@@ -1387,7 +1398,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
              can_fire_store_commit=%d,
              can_fire_load_wakeup=%d,
              lcam_avail=%d,
-             tlb_addr_uncacheable=%d, tlb_miss=%d
+             tlb_addr_uncacheable=%d, tlb_miss=%d,
+             failed_loads=%d, mem_xcpt_valid=%d
      """,
      io.memresp.valid, io.memresp.bits.is_load,
      will_fire_load_incoming,
@@ -1410,7 +1422,8 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
      can_fire_store_commit,
      can_fire_load_wakeup,
      lcam_avail,
-     tlb_addr_uncacheable, tlb_miss
+     tlb_addr_uncacheable, tlb_miss,
+     failed_loads.reduce(_|_), mem_xcpt_valid
    )
    printf("\n")
 

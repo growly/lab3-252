@@ -375,9 +375,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    exe_units.memory_unit.io.fpga_exe_resp.uop.rob_idx := fpga.io.memreq_rob_idx
    // TAN: Here we assign memory response signals to the FPGA
    // We use the tag to distinguish the memory requests
-   fpga.io.memresp.valid := exe_units.memory_unit.io.resp(0).valid
-   fpga.io.memresp.bits.data := exe_units.memory_unit.io.resp(0).bits.data
-   fpga.io.memresp.bits.tag := exe_units.memory_unit.io.resp(0).bits.uop.pc
+   fpga.io.memresp.valid := lsu.io.fpga_memresp_valid
+   fpga.io.memresp.bits.data := lsu.io.fpga_memresp_data
+   fpga.io.memresp.bits.tag := lsu.io.fpga_memresp_tag
 
    fpga.io.curr_rob_mem_tag := rob.io.enq_uops(0).pc
    printf("ROB check current PC: io.get_pc.curr_pc=%d, rob_enq_pc=%d, rob_enq_val=%d\n",
