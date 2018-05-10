@@ -41,7 +41,6 @@ class histogram(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val ef2 = Module(new Eager_Fork(2, dataWidth))
   val ld0 = Module(new Load(addrWidth, dataWidth, 0, 3, 0, 2))
   val ld1 = Module(new Load(addrWidth, dataWidth, 1, 3, 1, 2))
-  val j0 = Module(new Join(2, dataWidth))
   val st0 = Module(new Store(addrWidth, dataWidth, 2, 3, 0, 1))
   val b0 = Module(new Branch(dataWidth))
 
@@ -69,10 +68,6 @@ class histogram(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
     ld1.io.in.bits=0x%x, ld1.io.in.valid=%d,  ld1.io.in.ready=%d,
     ld1.io.out.bits=0x%x, ld1.io.out.valid=%d, ld1.io.out.ready=%d,
-
-    j0.io.in(0).bits=0x%x, j0.io.in(0).valid=%d, j0.io.in(0).ready=%d,
-    j0.io.in(1).bits=0x%x, j0.io.in(1).valid=%d, j0.io.in(1).ready=%d,
-    j0.io.out.bits(0)=0x%x, j0.io.out.bits(1)=0x%x, j0.io.out.valid=%d, j0.io.out.ready=%d,
 
     st0.io.in(0).bits=0x%x,  st0.io.in(1).bits=0x%x,
     st0.io.in(0).valid=%d, st0.io.in(1).valid=%d,
@@ -112,10 +107,6 @@ class histogram(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     ld1.io.in.bits, ld1.io.in.valid, ld1.io.in.ready,
     ld1.io.out.bits, ld1.io.out.valid, ld1.io.out.ready,
 
-    j0.io.in(0).bits, j0.io.in(0).valid, j0.io.in(0).ready,
-    j0.io.in(1).bits, j0.io.in(1).valid, j0.io.in(1).ready,
-    j0.io.out.bits(0), j0.io.out.bits(1), j0.io.out.valid, j0.io.out.ready,
-
     st0.io.in(0).bits,  st0.io.in(1).bits, st0.io.in(0).valid, st0.io.in(1).valid,
     st0.io.in(0).ready, st0.io.in(1).ready,
 
@@ -149,10 +140,8 @@ class histogram(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   fifo1.io.in.bits := ld0.io.out.bits
   ef2.io.in.bits := fifo1.io.out.bits
   ld1.io.in.bits := io.RegA1 + (ef2.io.out(0).bits << 2)
-  j0.io.in(0).bits := io.RegA1 + (ef2.io.out(1).bits << 2)
-  j0.io.in(1).bits := ld1.io.out.bits + 1.U
-  st0.io.in(0).bits := j0.io.out.bits(0) // store addr
-  st0.io.in(1).bits := j0.io.out.bits(1) // store data
+  st0.io.in(0).bits := io.RegA1 + (ef2.io.out(1).bits << 2)
+  st0.io.in(1).bits := ld1.io.out.bits + 1.U
 
   io.mem_p0_addr.bits := ld0.io.mem_addr.bits
   ld0.io.mem_data_in.bits := io.mem_p0_data_in.bits
@@ -206,17 +195,13 @@ class histogram(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   ef2.io.in.valid := fifo1.io.out.valid
   ef2.io.out(0).ready := ld1.io.in.ready
-  ef2.io.out(1).ready := j0.io.in(0).ready
+  ef2.io.out(1).ready := st0.io.in(0).ready
 
   ld1.io.in.valid := ef2.io.out(0).valid
-  ld1.io.out.ready := j0.io.in(1).ready
+  ld1.io.out.ready := st0.io.in(1).ready
 
-  // Sync store addr and store data
-  j0.io.in(0).valid := ef2.io.out(1).valid
-  j0.io.in(1).valid := ld1.io.out.valid
-  j0.io.out.ready := st0.io.in(0).ready & st0.io.in(1).ready
-  st0.io.in(0).valid := j0.io.out.valid
-  st0.io.in(1).valid := j0.io.out.valid
+  st0.io.in(0).valid := ef2.io.out(1).valid
+  st0.io.in(1).valid := ld1.io.out.valid
 
   io.mem_p0_addr.valid := ld0.io.mem_addr.valid
   ld0.io.mem_addr.ready := io.mem_p0_addr.ready

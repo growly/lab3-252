@@ -14,7 +14,8 @@ class FpgaMemReq()(implicit p: Parameters) extends BoomBundle()(p)
 {
    val addr     = UInt(width = vaddrBitsExtended)
    val is_load  = Bool()
-   val is_store = Bool()
+   val is_sta  = Bool()
+   val is_std  = Bool()
    val tag      = UInt(width = 32)
    val lsu_idx  = UInt(width = 32)
    val data     = UInt(width = xLen)
@@ -167,7 +168,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val memreq_ldq_idx_reg = Reg(init = UInt(0, 2))
    val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
 
-   when (io.currentPC(15, 0) === UInt(0x1c24)) {
+   when (io.currentPC(15, 0) === UInt(0x1bb0)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
@@ -265,7 +266,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // For now simply waiting for 100 cycles before flushing ROB
    val doneCnt = Reg(init = UInt(0, 32))
    val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 100.U && !doneValid) {
+   when (doneCnt === 1000.U && !doneValid) {
      doneCnt := 0.U
      doneValid := true.B
      rob_flush_start := true.B
@@ -337,10 +338,11 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    io.fetch_mem_inst := fetch_mem_inst_reg
 
-   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 3))
-   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 4))
+   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
 
    io.memreq.bits := memreq_arb.io.out.bits
    io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
@@ -358,13 +360,20 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
    load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
 
-   memreq_arb.io.in(2).bits := store_memreq_queue.io.deq.bits
-   memreq_arb.io.in(2).valid := store_memreq_queue.io.deq.valid && (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
+   memreq_arb.io.in(2).bits := store_addr_memreq_queue.io.deq.bits
+   memreq_arb.io.in(2).valid := store_addr_memreq_queue.io.deq.valid && (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
+   store_addr_memreq_queue.io.deq.ready := (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+                                           memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
+
+   memreq_arb.io.in(3).bits := store_data_memreq_queue.io.deq.bits
+   memreq_arb.io.in(3).valid := store_data_memreq_queue.io.deq.valid && (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
+   store_data_memreq_queue.io.deq.ready := (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+                                           memreq_arb.io.in(3).valid && memreq_arb.io.in(3).ready
 
    load0_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p0_addr.bits
    load0_memreq_queue.io.enq.bits.is_load := true.B
-   load0_memreq_queue.io.enq.bits.is_store := false.B
+   load0_memreq_queue.io.enq.bits.is_sta := false.B
+   load0_memreq_queue.io.enq.bits.is_std := false.B
    load0_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p0_addr_tag
    load0_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p0_load_idx
    load0_memreq_queue.io.enq.bits.data := 0.U
@@ -372,28 +381,40 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    load1_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p1_addr.bits
    load1_memreq_queue.io.enq.bits.is_load := true.B
-   load1_memreq_queue.io.enq.bits.is_store := false.B
+   load1_memreq_queue.io.enq.bits.is_sta := false.B
+   load1_memreq_queue.io.enq.bits.is_std := false.B
    load1_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p1_addr_tag
    load1_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p1_load_idx
    load1_memreq_queue.io.enq.bits.data := 0.U
    load1_memreq_queue.io.enq.bits.mem_cmd := M_XRD
 
-   store_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p2_addr.bits
-   store_memreq_queue.io.enq.bits.is_load := false.B
-   store_memreq_queue.io.enq.bits.is_store := true.B
-   store_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p2_addr_tag
-   store_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p2_store_idx
-   store_memreq_queue.io.enq.bits.data := vecadd.io.mem_p2_data_out.bits
-   store_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+   store_addr_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p2_addr.bits
+   store_addr_memreq_queue.io.enq.bits.is_load := false.B
+   store_addr_memreq_queue.io.enq.bits.is_sta := true.B
+   store_addr_memreq_queue.io.enq.bits.is_std := false.B
+   store_addr_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p2_addr_tag
+   store_addr_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p2_sta_idx
+   store_addr_memreq_queue.io.enq.bits.data := 0.U // does not matter for store address
+   store_addr_memreq_queue.io.enq.bits.mem_cmd := M_XWR
+
+   store_data_memreq_queue.io.enq.bits.addr := 0.U // does not matter for store data
+   store_data_memreq_queue.io.enq.bits.is_load := false.B
+   store_data_memreq_queue.io.enq.bits.is_sta := false.B
+   store_data_memreq_queue.io.enq.bits.is_std := true.B
+   store_data_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p2_data_out_tag
+   store_data_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p2_std_idx
+   store_data_memreq_queue.io.enq.bits.data := vecadd.io.mem_p2_data_out.bits
+   store_data_memreq_queue.io.enq.bits.mem_cmd := M_XWR
 
    load0_memreq_queue.io.enq.valid := vecadd.io.mem_p0_addr.valid
    load1_memreq_queue.io.enq.valid := vecadd.io.mem_p1_addr.valid
-   store_memreq_queue.io.enq.valid := vecadd.io.mem_p2_addr.valid
+   store_addr_memreq_queue.io.enq.valid := vecadd.io.mem_p2_addr.valid
+   store_data_memreq_queue.io.enq.valid := vecadd.io.mem_p2_data_out.valid
 
    vecadd.io.mem_p0_addr.ready := load0_memreq_queue.io.enq.ready
    vecadd.io.mem_p1_addr.ready := load1_memreq_queue.io.enq.ready
-   vecadd.io.mem_p2_addr.ready := store_memreq_queue.io.enq.ready
-   vecadd.io.mem_p2_data_out.ready := store_memreq_queue.io.enq.ready
+   vecadd.io.mem_p2_addr.ready := store_addr_memreq_queue.io.enq.ready
+   vecadd.io.mem_p2_data_out.ready := store_data_memreq_queue.io.enq.ready
 
    vecadd.io.mem_p0_data_in.valid := (io.memresp.bits.tag === vecadd.io.mem_p0_data_in_tag) & io.memresp.valid
    vecadd.io.mem_p0_data_in.bits := io.memresp.bits.data
@@ -414,7 +435,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            [USER LOGIC] userStart: %d, userDone: %d,
            [SIMPLE]vecadd.io.start=%d, vecadd.io.done=%d,
            [RETURN] returnIdx=%d, internalReset=%d,
-           io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_store=%d,
+           io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_sta=%d, io.memreq.bits.is_std=%d,
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
@@ -434,12 +455,39 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d, memreq_arb.io.in(2).valid=%d
            memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d, memreq_arb.io.in(2).ready=%d
            memreq_arb.io.out.valid=%d, memreq_arb.io.out.ready=%d,
+
+           load0_memreq_queue.io.enq.bits.tag=%d,
+           load0_memreq_queue.io.enq.valid=%d,
+           load0_memreq_queue.io.enq.ready=%d,
+
+           load1_memreq_queue.io.enq.bits.tag=%d,
+           load1_memreq_queue.io.enq.valid=%d,
+           load1_memreq_queue.io.enq.ready=%d,
+
+           store_addr_memreq_queue.io.enq.bits.tag=%d,
+           store_addr_memreq_queue.io.enq.valid=%d,
+           store_addr_memreq_queue.io.enq.ready=%d,
+
+           store_data_memreq_queue.io.enq.bits.tag=%d,
+           store_data_memreq_queue.io.enq.valid=%d,
+           store_data_memreq_queue.io.enq.ready=%d,
+
            load0_memreq_queue.io.deq.bits.tag=%d,
-           load1_memreq_queue.io.deq.bits.tag=%d,
-           store_memreq_queue.io.deq.bits.tag=%d,
+           load0_memreq_queue.io.deq.valid=%d,
            load0_memreq_queue.io.deq.ready=%d,
-           load1_memreq_queue.io.deq.ready=%d,
-           store_memreq_queue.io.deq.ready=%d,
+
+           load1_memreq_queue.io.enq.bits.tag=%d,
+           load1_memreq_queue.io.enq.valid=%d,
+           load1_memreq_queue.io.enq.ready=%d,
+
+           store_addr_memreq_queue.io.deq.bits.tag=%d,
+           store_addr_memreq_queue.io.deq.valid=%d,
+           store_addr_memreq_queue.io.deq.ready=%d,
+
+           store_data_memreq_queue.io.deq.bits.tag=%d,
+           store_data_memreq_queue.io.deq.valid=%d,
+           store_data_memreq_queue.io.deq.ready=%d,
+
            io.curr_rob_mem_tag=%d
      """,
      io.runnable, stallCnt,
@@ -449,7 +497,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      userStart, userDone,
      vecadd.io.start, vecadd.io.done,
      returnIdx, internalReset,
-     io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_store,
+     io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_sta, io.memreq.bits.is_std,
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,
@@ -469,12 +517,39 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid,
      memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready, memreq_arb.io.in(2).ready,
      memreq_arb.io.out.valid, memreq_arb.io.out.ready,
+
+     load0_memreq_queue.io.enq.bits.tag,
+     load0_memreq_queue.io.enq.valid,
+     load0_memreq_queue.io.enq.ready,
+
+     load1_memreq_queue.io.enq.bits.tag,
+     load1_memreq_queue.io.enq.valid,
+     load1_memreq_queue.io.enq.ready,
+
+     store_addr_memreq_queue.io.enq.bits.tag,
+     store_addr_memreq_queue.io.enq.valid,
+     store_addr_memreq_queue.io.enq.ready,
+
+     store_data_memreq_queue.io.enq.bits.tag,
+     store_data_memreq_queue.io.enq.valid,
+     store_data_memreq_queue.io.enq.ready,
+
      load0_memreq_queue.io.deq.bits.tag,
-     load1_memreq_queue.io.deq.bits.tag,
-     store_memreq_queue.io.deq.bits.tag,
+     load0_memreq_queue.io.deq.valid,
      load0_memreq_queue.io.deq.ready,
-     load1_memreq_queue.io.deq.ready,
-     store_memreq_queue.io.deq.ready,
+
+     load1_memreq_queue.io.enq.bits.tag,
+     load1_memreq_queue.io.enq.valid,
+     load1_memreq_queue.io.enq.ready,
+
+     store_addr_memreq_queue.io.deq.bits.tag,
+     store_addr_memreq_queue.io.deq.valid,
+     store_addr_memreq_queue.io.deq.ready,
+
+     store_data_memreq_queue.io.deq.bits.tag,
+     store_data_memreq_queue.io.deq.valid,
+     store_data_memreq_queue.io.deq.ready,
+
      io.curr_rob_mem_tag
    )
    printf("\n")

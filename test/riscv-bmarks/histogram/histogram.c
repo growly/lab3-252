@@ -32,7 +32,8 @@ int main() {
 
   int i;
   for (i = 0; i < SIZE; i++)
-    arr1[i] = i % 10;
+    arr1[i] = i / 10;
+
   for (i = 0; i < SIZE; i++)
     arr2[i] = 0;
   for (i = 0; i < SIZE; i++)

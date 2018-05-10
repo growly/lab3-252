@@ -775,7 +775,7 @@ Disassembly of section .text.startup:
     80001b84:	00000793          	li	a5,0
     80001b88:	00a00593          	li	a1,10
     80001b8c:	06400613          	li	a2,100
-    80001b90:	02b7e6bb          	remw	a3,a5,a1
+    80001b90:	02b7c6bb          	divw	a3,a5,a1
     80001b94:	00470713          	addi	a4,a4,4
     80001b98:	0017879b          	addiw	a5,a5,1
     80001b9c:	fed72e23          	sw	a3,-4(a4)
