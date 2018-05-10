@@ -668,7 +668,7 @@ class MemExeUnit(implicit p: Parameters) extends ExecutionUnit(num_rf_read_ports
 
    io.lsu_io.memresp.valid := memresp_val
    io.lsu_io.memresp.bits  := memresp_uop
-
+   io.lsu_io.memresp_data := memresp_data
 
    // Hook up loads to the response
    io.resp(0).valid := memresp_val

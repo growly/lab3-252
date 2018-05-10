@@ -824,7 +824,7 @@ class Rob(width: Int,
 
    io.ready := (rob_state === s_normal) && !full
 
-   printf("ROB state: %d, rob_flush: %d\n", rob_state, io.fpga_rob_flush)
+   printf("ROB state: %d, rob_flush: %d exception_thrown %d\n", rob_state, io.fpga_rob_flush, exception_thrown)
 
    //-----------------------------------------------
    //-----------------------------------------------
