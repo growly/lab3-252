@@ -265,7 +265,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // For now simply waiting for 100 cycles before flushing ROB
    val doneCnt = Reg(init = UInt(0, 32))
    val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 100.U && !doneValid) {
+   when (doneCnt === 1000.U && !doneValid) {
      doneCnt := 0.U
      doneValid := true.B
      rob_flush_start := true.B
@@ -338,10 +338,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.fetch_mem_inst := fetch_mem_inst_reg
 
    val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 4))
-   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
 
    io.memreq.bits := memreq_arb.io.out.bits
    io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
@@ -371,7 +371,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    load0_memreq_queue.io.enq.bits.addr := histogram.io.mem_p0_addr.bits
    load0_memreq_queue.io.enq.bits.is_load := true.B
-   load0_memreq_queue.io.enq.bits.is_store := false.B
+   load0_memreq_queue.io.enq.bits.is_sta := false.B
+   load0_memreq_queue.io.enq.bits.is_std := false.B
    load0_memreq_queue.io.enq.bits.tag := histogram.io.mem_p0_addr_tag
    load0_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p0_load_idx
    load0_memreq_queue.io.enq.bits.data := 0.U
@@ -379,7 +380,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    load1_memreq_queue.io.enq.bits.addr := histogram.io.mem_p1_addr.bits
    load1_memreq_queue.io.enq.bits.is_load := true.B
-   load1_memreq_queue.io.enq.bits.is_store := false.B
+   load1_memreq_queue.io.enq.bits.is_sta := false.B
+   load1_memreq_queue.io.enq.bits.is_std := false.B
    load1_memreq_queue.io.enq.bits.tag := histogram.io.mem_p1_addr_tag
    load1_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p1_load_idx
    load1_memreq_queue.io.enq.bits.data := 0.U
@@ -432,7 +434,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            [USER LOGIC] userStart: %d, userDone: %d,
            [SIMPLE]histogram.io.start=%d, histogram.io.done=%d,
            [RETURN] returnIdx=%d, internalReset=%d,
-           io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_store=%d,
+           io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_sta=%d, io.memreq.bits.is_std=%d,
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
            io.memreq.valid=%d,
            io.memresp.data=0x%x, io.memresp.tag=%d,
@@ -494,7 +496,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      userStart, userDone,
      histogram.io.start, histogram.io.done,
      returnIdx, internalReset,
-     io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_store,
+     io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_sta, io.memreq.bits.is_std,
      io.memreq.bits.data, io.memreq.bits.tag,
      io.memreq.valid,
      io.memresp.bits.data, io.memresp.bits.tag,

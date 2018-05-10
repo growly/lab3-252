@@ -265,7 +265,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // For now simply waiting for 100 cycles before flushing ROB
    val doneCnt = Reg(init = UInt(0, 32))
    val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 100.U && !doneValid) {
+   when (doneCnt === 1000.U && !doneValid) {
      doneCnt := 0.U
      doneValid := true.B
      rob_flush_start := true.B
@@ -338,10 +338,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.fetch_mem_inst := fetch_mem_inst_reg
 
    val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 4))
-   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
-   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
+   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
 
    io.memreq.bits := memreq_arb.io.out.bits
    io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
