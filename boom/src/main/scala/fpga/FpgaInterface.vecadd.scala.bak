@@ -168,7 +168,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val memreq_ldq_idx_reg = Reg(init = UInt(0, 2))
    val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
 
-   when (io.currentPC(15, 0) === UInt(0x1bb0)) {
+   when (io.currentPC(15, 0) === UInt(0x1c24)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
@@ -339,10 +339,10 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.fetch_mem_inst := fetch_mem_inst_reg
 
    val memreq_arb = Module(new Arbiter(new FpgaMemReq(), 4))
-   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
-   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
-   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
-   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 20))
+   val load0_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val load1_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_addr_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
+   val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
 
    io.memreq.bits := memreq_arb.io.out.bits
    io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
