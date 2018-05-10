@@ -43,7 +43,6 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val ld0 = Module(new Load(addrWidth, dataWidth, 0, 3, 0, 2))
   val ld1 = Module(new Load(addrWidth, dataWidth, 1, 3, 1, 2))
   val jo0 = Module(new Join(2, dataWidth))
-  val jo1 = Module(new Join(2, dataWidth))
   val st0 = Module(new Store(addrWidth, dataWidth, 2, 3, 0, 1))
   val b0 = Module(new Branch(dataWidth))
 
@@ -76,10 +75,6 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     jo0.io.in(0).bits=0x%x, jo0.io.in(0).valid=%d, jo0.io.in(0).ready=%d,
     jo0.io.in(1).bits=0x%x, jo0.io.in(1).valid=%d, jo0.io.in(1).ready=%d,
     jo0.io.out.bits(0)=0x%x, jo0.io.out.bits(1)=0x%x, jo0.io.out.valid=%d, jo0.io.out.ready=%d,
-
-    jo1.io.in(0).bits=0x%x, jo1.io.in(0).valid=%d, jo1.io.in(0).ready=%d,
-    jo1.io.in(1).bits=0x%x, jo1.io.in(1).valid=%d, jo1.io.in(1).ready=%d,
-    jo1.io.out.bits(0)=0x%x, jo1.io.out.bits(1)=0x%x, jo1.io.out.valid=%d, jo1.io.out.ready=%d,
 
     st0.io.in(0).bits=0x%x,  st0.io.in(1).bits=0x%x,
     st0.io.in(0).valid=%d, st0.io.in(1).valid=%d,
@@ -124,10 +119,6 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     jo0.io.in(1).bits, jo0.io.in(1).valid, jo0.io.in(1).ready,
     jo0.io.out.bits(0), jo0.io.out.bits(1), jo0.io.out.valid, jo0.io.out.ready,
 
-    jo1.io.in(0).bits, jo1.io.in(0).valid, jo1.io.in(0).ready,
-    jo1.io.in(1).bits, jo1.io.in(1).valid, jo1.io.in(1).ready,
-    jo1.io.out.bits(0), jo1.io.out.bits(1), jo1.io.out.valid, jo1.io.out.ready,
-
     st0.io.in(0).bits,  st0.io.in(1).bits, st0.io.in(0).valid, st0.io.in(1).valid,
     st0.io.in(0).ready, st0.io.in(1).ready,
 
@@ -163,10 +154,8 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   fifo2.io.in.bits := ld1.io.out.bits
   jo0.io.in(0).bits := fifo1.io.out.bits
   jo0.io.in(1).bits := fifo2.io.out.bits
-  jo1.io.in(0).bits := io.RegA3 + (ef0.io.out(2).bits << 2)
-  jo1.io.in(1).bits := jo0.io.out.bits(0) + jo0.io.out.bits(1) // arr1[i] + arr2[i]
-  st0.io.in(0).bits := jo1.io.out.bits(0) // store addr
-  st0.io.in(1).bits := jo1.io.out.bits(1) // store data
+  st0.io.in(0).bits := io.RegA3 + (ef0.io.out(2).bits << 2)
+  st0.io.in(1).bits := jo0.io.out.bits(0) + jo0.io.out.bits(1) // arr1[i] + arr2[i]
 
   io.mem_p0_addr.bits := ld0.io.mem_addr.bits
   ld0.io.mem_data_in.bits := io.mem_p0_data_in.bits
@@ -201,7 +190,7 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   ef0.io.in.valid := fifo0.io.out.valid
   ef0.io.out(0).ready := ld0.io.in.ready
   ef0.io.out(1).ready := ld1.io.in.ready
-  ef0.io.out(2).ready := jo1.io.in(0).ready
+  ef0.io.out(2).ready := st0.io.in(0).ready
   ef0.io.out(3).ready := ef1.io.in.ready
 
   ef1.io.in.valid := ef0.io.out(3).valid
@@ -228,14 +217,10 @@ class vecadd(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   jo0.io.in(0).valid := fifo1.io.out.valid
   jo0.io.in(1).valid := fifo2.io.out.valid
-  jo0.io.out.ready := jo1.io.in(1).ready
+  jo0.io.out.ready := st0.io.in(1).ready
 
-  // Sync store addr and store data
-  jo1.io.in(0).valid := ef0.io.out(2).valid
-  jo1.io.in(1).valid := jo0.io.out.valid
-  jo1.io.out.ready := st0.io.in(0).ready & st0.io.in(1).ready
-  st0.io.in(0).valid := jo1.io.out.valid
-  st0.io.in(1).valid := jo1.io.out.valid
+  st0.io.in(0).valid := ef0.io.out(2).valid
+  st0.io.in(1).valid := jo0.io.out.valid
 
   io.mem_p0_addr.valid := ld0.io.mem_addr.valid
   ld0.io.mem_addr.ready := io.mem_p0_addr.ready

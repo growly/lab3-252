@@ -29,6 +29,8 @@ bmarks = \
 	lsu_forwarding \
 	lsu_failures \
   simple \
+  histogram \
+  vecadd \
 
 #--------------------------------------------------------------------
 # Build rules
