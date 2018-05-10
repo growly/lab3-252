@@ -13,7 +13,8 @@ class Store(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
     val mem_data_out     = new DecoupledIO(UInt(addrWidth.W))
     val mem_data_out_tag = UInt(OUTPUT, 32)
 
-    val mem_store_idx    = UInt(OUTPUT, 32)
+    val mem_sta_idx    = UInt(OUTPUT, 32)
+    val mem_std_idx    = UInt(OUTPUT, 32)
 
   })
 
@@ -27,18 +28,22 @@ class Store(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
 
   val mem_addr_tag_reg = Reg(init = UInt(initTag, 32))
   val mem_data_out_tag_reg = Reg(init = UInt(initTag, 32))
-  val mem_store_idx_reg = Reg(init = UInt(initStoreIdx, 32))
+  val mem_sta_idx_reg = Reg(init = UInt(initStoreIdx, 32))
+  val mem_std_idx_reg = Reg(init = UInt(initStoreIdx, 32))
 
   when (io.mem_addr.valid && io.mem_addr.ready) {
     mem_addr_tag_reg := mem_addr_tag_reg + UInt(strideTag)
-    mem_store_idx_reg := mem_store_idx_reg + UInt(strideStore)
+    mem_sta_idx_reg := mem_sta_idx_reg + UInt(strideStore)
   }
 
   when (io.mem_data_out.valid && io.mem_data_out.ready) {
     mem_data_out_tag_reg := mem_data_out_tag_reg + UInt(strideTag)
+    mem_std_idx_reg := mem_std_idx_reg + UInt(strideStore)
   }
 
   io.mem_addr_tag := mem_addr_tag_reg
   io.mem_data_out_tag := mem_data_out_tag_reg
-  io.mem_store_idx := mem_store_idx_reg
+  io.mem_sta_idx := mem_sta_idx_reg
+  io.mem_std_idx := mem_std_idx_reg
+
 }
