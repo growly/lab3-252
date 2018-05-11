@@ -9,6 +9,20 @@ class Eager_Fork(num_ports: Int, width: Int) extends Module {
 
   })
 
+  // TODO(aryap): This would be nice.
+  //override def toString: String = {
+  //  val v = Mux(io.in.valid, 'V'.U, '-'.U)
+  //  val r = Mux(io.in.ready, 'R'.U, '-'.U)
+  //  var message = f"in: $v%s$r%s 0x${io.in.bits}%x "
+  //  for (p <- 0 until num_ports) {
+  //    val v = Mux(io.out(p).valid, 'V'.U, '-'.U)
+  //    val r = Mux(io.out(p).ready, 'R'.U, '-'.U)
+  //    message += f"out: $v%s$r%s 0x${io.out(p).bits}%x "
+  //  }
+  //  message += "\n"
+  //  return message
+  //}
+
   // Datapath
   for (p <- 0 until num_ports) {
     io.out(p).bits := io.in.bits
