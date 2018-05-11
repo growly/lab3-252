@@ -603,7 +603,10 @@ class Rob(width: Int,
             debug_entry(w + i*width).valid := rob_val(i)
             debug_entry(w + i*width).busy := rob_bsy(UInt(i))
             debug_entry(w + i*width).uop := rob_uop(UInt(i))
-            debug_entry(w + i*width).uop.pc := rob_pc_hob.read(UInt(i,log2Up(num_rob_rows))) + UInt(w << 2)
+            //debug_entry(w + i*width).uop.pc := rob_pc_hob.read(UInt(i,log2Up(num_rob_rows))) + UInt(w << 2)
+            // TAN: printout the original PC value to keep track with the instructions
+            // sent from FPGA
+            debug_entry(w + i*width).uop.pc := rob_uop(UInt(i)).pc
             debug_entry(w + i*width).exception := rob_exception(UInt(i))
          }
       }
