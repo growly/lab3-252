@@ -79,7 +79,9 @@ benchmarks = \
 	vvadd \
 
 example = \
-  histogram \
+  pho-mult-add \
+
+# histogram
 
 output_dir=$(sim_dir)/output
 
