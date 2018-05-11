@@ -2,7 +2,7 @@ package boom
 
 import Chisel._
 
-import benchmarks.vecadd._
+import benchmarks.histogram._
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
@@ -104,7 +104,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // to jump in the PC, an explicit virtual/physical address, or this)
    // configurable by the user logic.
    //
-   // 0x00008067 is from vecadd.riscv.dump and decodes to
+   // 0x00008067 is from histogram.riscv.dump and decodes to
    //   000000000000 00001 000 00000 1100111
    //   imm          rs1   fn3 rd    opcode  
    //   0            x1        x0    jalr     (standard calling convention)
@@ -168,7 +168,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val memreq_ldq_idx_reg = Reg(init = UInt(0, 2))
    val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
 
-   when (io.currentPC(15, 0) === UInt(0x1c24)) {
+   when (io.currentPC(15, 0) === UInt(0x1be0)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
@@ -249,48 +249,15 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       runnable_reg := false.B
    }
 
-   val vecadd = Module(new vecadd(vaddrBitsExtended, xLen))
-   vecadd.io.RegA0 := registers(0)
-   vecadd.io.RegA1 := registers(1)
-   vecadd.io.RegA2 := registers(2)
-   vecadd.io.RegA3 := registers(3)
+   val histogram = Module(new histogram(vaddrBitsExtended, xLen))
+   histogram.io.RegA0 := registers(0)
+   histogram.io.RegA1 := registers(1)
+   histogram.io.RegA2 := registers(2)
 
-   val rob_flush_start = Reg(init = Bool(false))
-   val rob_flush_start_delayed = Reg(init = Bool(false))
-
-   rob_flush_start_delayed := rob_flush_start
-
-   // TODO: should use the done signal from the kernel here ... Have to figure
-   // out when is safe to set the done signal (e.g. wait until all outstanding
-   // memory transactions complete)
-   // For now simply waiting for 100 cycles before flushing ROB
-   val doneCnt = Reg(init = UInt(0, 32))
-   val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 1000.U && !doneValid) {
-     doneCnt := 0.U
-     doneValid := true.B
-     rob_flush_start := true.B
-   }
-   .elsewhen (vecadd.io.done && !doneValid) {
-     doneCnt := doneCnt + 1.U
-   }
-
-
-   when (!rob_flush_start_delayed && rob_flush_start) {
-     io.rob_flush := true.B
-     fetch_mem_inst_reg := false.B
+   when (io.rob_empty && histogram.io.done) {
+     fetch_mem_inst_reg  := false.B
      fetch_mem_inst_start := false.B
-     fetch_inst_reg := 0.U
-     fetch_valid_reg := false.B
-   }
-   .otherwise {
-     io.rob_flush := false.B
-   }
-
-   // after flushing rob, we can issue return insts to get back to BOOM
-   when (rob_flush_start && io.rob_empty) {
      userDone := true.B
-     rob_flush_start := false.B
    }
 
    val userStart_delayed = Reg(init = Bool(false))
@@ -301,39 +268,49 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // start executing kernel after we finish with fetching registers
    when (!userStart_delayed && userStart) {
-      vecadd.io.start := true.B
+      histogram.io.start := true.B
       fetch_mem_inst_start := true.B
       orig_rob_tail_reg := io.orig_rob_tail
       orig_ldq_tail_reg := io.orig_ldq_tail
       orig_stq_tail_reg := io.orig_stq_tail
-      vecadd.io.start := true.B
+      histogram.io.start := true.B
       memreq_ldq_idx_reg := io.orig_ldq_tail
       memreq_stq_idx_reg := io.orig_stq_tail
    }
    .otherwise {
-      vecadd.io.start := false.B
+      histogram.io.start := false.B
    }
 
    val memInstrs = Mem(3, UInt(xLen.W))
    val memInstrIdx = Reg(init = UInt(0, 32.W))
    val memInstrCnt = Reg(init = UInt(0, 32))
-   memInstrs(0) := "h0005a783".U
-   memInstrs(1) := "h00062503".U
-   memInstrs(2) := "h00f6a023".U
+   memInstrs(0) := "h00052783".U
+   memInstrs(1) := "h0007a703".U
+   memInstrs(2) := "h00e7a023".U
 
-   // Keep fetching memory instructions until the kernel finishes
-   when (fetch_mem_inst_start && io.fetch_ready) {
-     fetch_mem_inst_reg := true.B
-     memInstrCnt := memInstrCnt + 1.U
-     fetch_inst_reg := memInstrs(memInstrIdx)
-     fetch_valid_reg := true.B
-     fetch_pc_reg := memInstrCnt
-   }
+   val loopIdx = Reg(init = UInt(0, 32.W))
+   when (fetch_mem_inst_start) {
+      when (loopIdx < registers(2)) {
+         when (io.fetch_ready) {
+            fetch_inst_reg := memInstrs(memInstrIdx)
+            fetch_mem_inst_reg := true.B
+            fetch_pc_reg := memInstrCnt
+            fetch_valid_reg := true.B
 
-   when (memInstrIdx === 2.U && io.fetch_ready) {
-     memInstrIdx := 0.U
-   } .elsewhen (fetch_mem_inst_start && io.fetch_ready) {
-     memInstrIdx := memInstrIdx + 1.U
+            when (memInstrIdx === 2.U) {
+               memInstrIdx := 0.U
+               loopIdx := loopIdx + 1.U
+            } .otherwise {
+               memInstrIdx := memInstrIdx + 1.U
+            }
+            memInstrCnt := memInstrCnt + 1.U
+         } 
+      }
+      .elsewhen (io.fetch_ready) {
+         fetch_valid_reg := false.B
+      }
+   } .otherwise {
+     loopIdx := 0.U
    }
 
    io.fetch_mem_inst := fetch_mem_inst_reg
@@ -345,7 +322,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val store_data_memreq_queue = Module(new Queue(new FpgaMemReq(), 10))
 
    io.memreq.bits := memreq_arb.io.out.bits
-   io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
+   io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag <= io.curr_rob_mem_tag)
    memreq_arb.io.out.ready := true.B
 
    io.memreq_rob_idx := memreq_arb.io.out.bits.tag + orig_rob_tail_reg
@@ -353,47 +330,47 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.memreq_stq_idx := memreq_arb.io.out.bits.lsu_idx + orig_stq_tail_reg
 
    memreq_arb.io.in(0).bits := load0_memreq_queue.io.deq.bits
-   memreq_arb.io.in(0).valid := load0_memreq_queue.io.deq.valid && (load0_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   load0_memreq_queue.io.deq.ready := (load0_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(0).valid && memreq_arb.io.in(0).ready
+   memreq_arb.io.in(0).valid := load0_memreq_queue.io.deq.valid && (load0_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   load0_memreq_queue.io.deq.ready := (load0_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(0).valid && memreq_arb.io.in(0).ready
 
    memreq_arb.io.in(1).bits := load1_memreq_queue.io.deq.bits
-   memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
+   memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
 
    memreq_arb.io.in(2).bits := store_addr_memreq_queue.io.deq.bits
-   memreq_arb.io.in(2).valid := store_addr_memreq_queue.io.deq.valid && (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   store_addr_memreq_queue.io.deq.ready := (store_addr_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+   memreq_arb.io.in(2).valid := store_addr_memreq_queue.io.deq.valid && (store_addr_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   store_addr_memreq_queue.io.deq.ready := (store_addr_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) &&
                                            memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
 
    memreq_arb.io.in(3).bits := store_data_memreq_queue.io.deq.bits
-   memreq_arb.io.in(3).valid := store_data_memreq_queue.io.deq.valid && (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   store_data_memreq_queue.io.deq.ready := (store_data_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) &&
+   memreq_arb.io.in(3).valid := store_data_memreq_queue.io.deq.valid && (store_data_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   store_data_memreq_queue.io.deq.ready := (store_data_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) &&
                                            memreq_arb.io.in(3).valid && memreq_arb.io.in(3).ready
 
-   load0_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p0_addr.bits
+   load0_memreq_queue.io.enq.bits.addr := histogram.io.mem_p0_addr.bits
    load0_memreq_queue.io.enq.bits.is_load := true.B
    load0_memreq_queue.io.enq.bits.is_sta := false.B
    load0_memreq_queue.io.enq.bits.is_std := false.B
-   load0_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p0_addr_tag
-   load0_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p0_load_idx
+   load0_memreq_queue.io.enq.bits.tag := histogram.io.mem_p0_addr_tag
+   load0_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p0_load_idx
    load0_memreq_queue.io.enq.bits.data := 0.U
    load0_memreq_queue.io.enq.bits.mem_cmd := M_XRD
 
-   load1_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p1_addr.bits
+   load1_memreq_queue.io.enq.bits.addr := histogram.io.mem_p1_addr.bits
    load1_memreq_queue.io.enq.bits.is_load := true.B
    load1_memreq_queue.io.enq.bits.is_sta := false.B
    load1_memreq_queue.io.enq.bits.is_std := false.B
-   load1_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p1_addr_tag
-   load1_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p1_load_idx
+   load1_memreq_queue.io.enq.bits.tag := histogram.io.mem_p1_addr_tag
+   load1_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p1_load_idx
    load1_memreq_queue.io.enq.bits.data := 0.U
    load1_memreq_queue.io.enq.bits.mem_cmd := M_XRD
 
-   store_addr_memreq_queue.io.enq.bits.addr := vecadd.io.mem_p2_addr.bits
+   store_addr_memreq_queue.io.enq.bits.addr := histogram.io.mem_p2_addr.bits
    store_addr_memreq_queue.io.enq.bits.is_load := false.B
    store_addr_memreq_queue.io.enq.bits.is_sta := true.B
    store_addr_memreq_queue.io.enq.bits.is_std := false.B
-   store_addr_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p2_addr_tag
-   store_addr_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p2_sta_idx
+   store_addr_memreq_queue.io.enq.bits.tag := histogram.io.mem_p2_addr_tag
+   store_addr_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p2_sta_idx
    store_addr_memreq_queue.io.enq.bits.data := 0.U // does not matter for store address
    store_addr_memreq_queue.io.enq.bits.mem_cmd := M_XWR
 
@@ -401,26 +378,26 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    store_data_memreq_queue.io.enq.bits.is_load := false.B
    store_data_memreq_queue.io.enq.bits.is_sta := false.B
    store_data_memreq_queue.io.enq.bits.is_std := true.B
-   store_data_memreq_queue.io.enq.bits.tag := vecadd.io.mem_p2_data_out_tag
-   store_data_memreq_queue.io.enq.bits.lsu_idx := vecadd.io.mem_p2_std_idx
-   store_data_memreq_queue.io.enq.bits.data := vecadd.io.mem_p2_data_out.bits
+   store_data_memreq_queue.io.enq.bits.tag := histogram.io.mem_p2_data_out_tag
+   store_data_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p2_std_idx
+   store_data_memreq_queue.io.enq.bits.data := histogram.io.mem_p2_data_out.bits
    store_data_memreq_queue.io.enq.bits.mem_cmd := M_XWR
 
-   load0_memreq_queue.io.enq.valid := vecadd.io.mem_p0_addr.valid
-   load1_memreq_queue.io.enq.valid := vecadd.io.mem_p1_addr.valid
-   store_addr_memreq_queue.io.enq.valid := vecadd.io.mem_p2_addr.valid
-   store_data_memreq_queue.io.enq.valid := vecadd.io.mem_p2_data_out.valid
+   load0_memreq_queue.io.enq.valid := histogram.io.mem_p0_addr.valid
+   load1_memreq_queue.io.enq.valid := histogram.io.mem_p1_addr.valid
+   store_addr_memreq_queue.io.enq.valid := histogram.io.mem_p2_addr.valid
+   store_data_memreq_queue.io.enq.valid := histogram.io.mem_p2_data_out.valid
 
-   vecadd.io.mem_p0_addr.ready := load0_memreq_queue.io.enq.ready
-   vecadd.io.mem_p1_addr.ready := load1_memreq_queue.io.enq.ready
-   vecadd.io.mem_p2_addr.ready := store_addr_memreq_queue.io.enq.ready
-   vecadd.io.mem_p2_data_out.ready := store_data_memreq_queue.io.enq.ready
+   histogram.io.mem_p0_addr.ready := load0_memreq_queue.io.enq.ready
+   histogram.io.mem_p1_addr.ready := load1_memreq_queue.io.enq.ready
+   histogram.io.mem_p2_addr.ready := store_addr_memreq_queue.io.enq.ready
+   histogram.io.mem_p2_data_out.ready := store_data_memreq_queue.io.enq.ready
 
-   vecadd.io.mem_p0_data_in.valid := (io.memresp.bits.tag === vecadd.io.mem_p0_data_in_tag) & io.memresp.valid
-   vecadd.io.mem_p0_data_in.bits := io.memresp.bits.data
+   histogram.io.mem_p0_data_in.valid := (io.memresp.bits.tag === histogram.io.mem_p0_data_in_tag) & io.memresp.valid
+   histogram.io.mem_p0_data_in.bits := io.memresp.bits.data
 
-   vecadd.io.mem_p1_data_in.valid := (io.memresp.bits.tag === vecadd.io.mem_p1_data_in_tag) & io.memresp.valid
-   vecadd.io.mem_p1_data_in.bits := io.memresp.bits.data
+   histogram.io.mem_p1_data_in.valid := (io.memresp.bits.tag === histogram.io.mem_p1_data_in_tag) & io.memresp.valid
+   histogram.io.mem_p1_data_in.bits := io.memresp.bits.data
 
    printf("\n")
    for (i <- 0 to numRegisters - 1) {
@@ -433,7 +410,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            [REG FETCH] fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
            rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, fetch_pc_reg: 0x%x,
            [USER LOGIC] userStart: %d, userDone: %d,
-           [SIMPLE]vecadd.io.start=%d, vecadd.io.done=%d,
+           [SIMPLE]histogram.io.start=%d, histogram.io.done=%d,
            [RETURN] returnIdx=%d, internalReset=%d,
            io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_sta=%d, io.memreq.bits.is_std=%d,
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
@@ -443,15 +420,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.laq_full=%d, io.stq_full=%d,
            io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d
            memInstrCnt=%d,
-           vecadd.io.mem_p0_addr.valid=%d,
-           vecadd.io.mem_p1_addr.valid=%d,
-           vecadd.io.mem_p2_addr.valid=%d,
-           vecadd.io.mem_p0_data_in.valid=%d,
-           vecadd.io.mem_p1_data_in.valid=%d,
-           vecadd.io.mem_p0_addr_tag=%d, vecadd.io.mem_p0_data_in_tag=%d,
-           vecadd.io.mem_p1_addr_tag=%d, vecadd.io.mem_p1_data_in_tag=%d,
-           vecadd.io.mem_p2_addr_tag=%d
-           io.rob_flush=%d, io.rob_empty=%d, rob_flush_start=%d,
+           histogram.io.mem_p0_addr.valid=%d,
+           histogram.io.mem_p1_addr.valid=%d,
+           histogram.io.mem_p2_addr.valid=%d,
+           histogram.io.mem_p0_data_in.valid=%d,
+           histogram.io.mem_p1_data_in.valid=%d,
+           histogram.io.mem_p0_addr_tag=%d, histogram.io.mem_p0_data_in_tag=%d,
+           histogram.io.mem_p1_addr_tag=%d, histogram.io.mem_p1_data_in_tag=%d,
+           histogram.io.mem_p2_addr_tag=%d
            memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d, memreq_arb.io.in(2).valid=%d
            memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d, memreq_arb.io.in(2).ready=%d
            memreq_arb.io.out.valid=%d, memreq_arb.io.out.ready=%d,
@@ -488,14 +464,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            store_data_memreq_queue.io.deq.valid=%d,
            store_data_memreq_queue.io.deq.ready=%d,
 
-           io.curr_rob_mem_tag=%d
+           io.curr_rob_mem_tag=%d, loopIdx=%d
      """,
      io.runnable, stallCnt,
      regReqIdx, regRespIdx, fetchStart,
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
      io.rob_valid, io.rob_data, io.currentPC, fetch_pc_reg,
      userStart, userDone,
-     vecadd.io.start, vecadd.io.done,
+     histogram.io.start, histogram.io.done,
      returnIdx, internalReset,
      io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_sta, io.memreq.bits.is_std,
      io.memreq.bits.data, io.memreq.bits.tag,
@@ -505,15 +481,14 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.laq_full, io.stq_full,
      io.memreq_rob_idx, io.memreq_ldq_idx, io.memreq_stq_idx,
      memInstrCnt,
-     vecadd.io.mem_p0_addr.valid,
-     vecadd.io.mem_p1_addr.valid,
-     vecadd.io.mem_p2_addr.valid,
-     vecadd.io.mem_p0_data_in.valid,
-     vecadd.io.mem_p1_data_in.valid,
-     vecadd.io.mem_p0_addr_tag, vecadd.io.mem_p0_data_in_tag,
-     vecadd.io.mem_p1_addr_tag, vecadd.io.mem_p1_data_in_tag,
-     vecadd.io.mem_p2_addr_tag,
-     io.rob_flush, io.rob_empty, rob_flush_start,
+     histogram.io.mem_p0_addr.valid,
+     histogram.io.mem_p1_addr.valid,
+     histogram.io.mem_p2_addr.valid,
+     histogram.io.mem_p0_data_in.valid,
+     histogram.io.mem_p1_data_in.valid,
+     histogram.io.mem_p0_addr_tag, histogram.io.mem_p0_data_in_tag,
+     histogram.io.mem_p1_addr_tag, histogram.io.mem_p1_data_in_tag,
+     histogram.io.mem_p2_addr_tag,
      memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid,
      memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready, memreq_arb.io.in(2).ready,
      memreq_arb.io.out.valid, memreq_arb.io.out.ready,
@@ -550,7 +525,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      store_data_memreq_queue.io.deq.valid,
      store_data_memreq_queue.io.deq.ready,
 
-     io.curr_rob_mem_tag
+     io.curr_rob_mem_tag, loopIdx
    )
    printf("\n")
 
