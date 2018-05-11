@@ -2,11 +2,7 @@ package boom
 
 import Chisel._
 
-<<<<<<< HEAD
-import benchmarks.histogram._
-=======
 import benchmarks.matmul._
->>>>>>> arya-mat-mul
 import freechips.rocketchip.config._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.util._
@@ -109,11 +105,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    // to jump in the PC, an explicit virtual/physical address, or this)
    // configurable by the user logic.
    //
-<<<<<<< HEAD
-   // 0x00008067 is from histogram.riscv.dump and decodes to
-=======
    // 0x00008067 is from .riscv.dump and decodes to
->>>>>>> arya-mat-mul
    //   000000000000 00001 000 00000 1100111
    //   imm          rs1   fn3 rd    opcode  
    //   0            x1        x0    jalr     (standard calling convention)
@@ -177,12 +169,8 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val memreq_ldq_idx_reg = Reg(init = UInt(0, 2))
    val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
 
-<<<<<<< HEAD
-   when (io.currentPC(15, 0) === UInt(0x1be0)) {
-=======
    // This is for pho-mult-add.riscv
    when (io.currentPC(15, 0) === UInt(0x1cb8)) {
->>>>>>> arya-mat-mul
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
@@ -265,12 +253,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
       runnable_reg := false.B
    }
 
-<<<<<<< HEAD
-   val histogram = Module(new histogram(vaddrBitsExtended, xLen))
-   histogram.io.RegA0 := registers(0)
-   histogram.io.RegA1 := registers(1)
-   histogram.io.RegA2 := registers(2)
-=======
    val userModule = Module(new matmul(vaddrBitsExtended, xLen))
    userModule.io.RegA0 := registers(0)
    userModule.io.RegA1 := registers(1)
@@ -297,8 +279,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      doneCnt := doneCnt + 1.U
    }
 
->>>>>>> arya-mat-mul
-
    when (io.rob_empty && histogram.io.done) {
      fetch_mem_inst_reg  := false.B
      fetch_mem_inst_start := false.B
@@ -313,63 +293,21 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    // start executing kernel after we finish with fetching registers
    when (!userStart_delayed && userStart) {
-<<<<<<< HEAD
-      histogram.io.start := true.B
-=======
       userModule.io.start := true.B
->>>>>>> arya-mat-mul
       fetch_mem_inst_start := true.B
       orig_rob_tail_reg := io.orig_rob_tail
       orig_ldq_tail_reg := io.orig_ldq_tail
       orig_stq_tail_reg := io.orig_stq_tail
-<<<<<<< HEAD
-      histogram.io.start := true.B
-=======
       userModule.io.start := true.B
->>>>>>> arya-mat-mul
-      memreq_ldq_idx_reg := io.orig_ldq_tail
       memreq_stq_idx_reg := io.orig_stq_tail
    }
    .otherwise {
-<<<<<<< HEAD
-      histogram.io.start := false.B
-=======
       userModule.io.start := false.B
->>>>>>> arya-mat-mul
    }
 
    val memInstrs = Mem(3, UInt(xLen.W))
    val memInstrIdx = Reg(init = UInt(0, 32.W))
    val memInstrCnt = Reg(init = UInt(0, 32))
-<<<<<<< HEAD
-   memInstrs(0) := "h00052783".U
-   memInstrs(1) := "h0007a703".U
-   memInstrs(2) := "h00e7a023".U
-
-   val loopIdx = Reg(init = UInt(0, 32.W))
-   when (fetch_mem_inst_start) {
-      when (loopIdx < registers(2)) {
-         when (io.fetch_ready) {
-            fetch_inst_reg := memInstrs(memInstrIdx)
-            fetch_mem_inst_reg := true.B
-            fetch_pc_reg := memInstrCnt
-            fetch_valid_reg := true.B
-
-            when (memInstrIdx === 2.U) {
-               memInstrIdx := 0.U
-               loopIdx := loopIdx + 1.U
-            } .otherwise {
-               memInstrIdx := memInstrIdx + 1.U
-            }
-            memInstrCnt := memInstrCnt + 1.U
-         } 
-      }
-      .elsewhen (io.fetch_ready) {
-         fetch_valid_reg := false.B
-      }
-   } .otherwise {
-     loopIdx := 0.U
-=======
    memInstrs(0) := "h0005a783".U    // Load
    memInstrs(1) := "h00062503".U    // Load
    memInstrs(2) := "h00f6a023".U
@@ -416,7 +354,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
          }
          // The outer loop only goes as far as N; we don't restart the counter.
       }
->>>>>>> arya-mat-mul
    }
 
    io.fetch_mem_inst := fetch_mem_inst_reg
@@ -443,69 +380,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
    load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
 
-<<<<<<< HEAD
-   memreq_arb.io.in(2).bits := store_addr_memreq_queue.io.deq.bits
-   memreq_arb.io.in(2).valid := store_addr_memreq_queue.io.deq.valid && (store_addr_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
-   store_addr_memreq_queue.io.deq.ready := (store_addr_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) &&
-                                           memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
-
-   memreq_arb.io.in(3).bits := store_data_memreq_queue.io.deq.bits
-   memreq_arb.io.in(3).valid := store_data_memreq_queue.io.deq.valid && (store_data_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
-   store_data_memreq_queue.io.deq.ready := (store_data_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) &&
-                                           memreq_arb.io.in(3).valid && memreq_arb.io.in(3).ready
-
-   load0_memreq_queue.io.enq.bits.addr := histogram.io.mem_p0_addr.bits
-   load0_memreq_queue.io.enq.bits.is_load := true.B
-   load0_memreq_queue.io.enq.bits.is_sta := false.B
-   load0_memreq_queue.io.enq.bits.is_std := false.B
-   load0_memreq_queue.io.enq.bits.tag := histogram.io.mem_p0_addr_tag
-   load0_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p0_load_idx
-   load0_memreq_queue.io.enq.bits.data := 0.U
-   load0_memreq_queue.io.enq.bits.mem_cmd := M_XRD
-
-   load1_memreq_queue.io.enq.bits.addr := histogram.io.mem_p1_addr.bits
-   load1_memreq_queue.io.enq.bits.is_load := true.B
-   load1_memreq_queue.io.enq.bits.is_sta := false.B
-   load1_memreq_queue.io.enq.bits.is_std := false.B
-   load1_memreq_queue.io.enq.bits.tag := histogram.io.mem_p1_addr_tag
-   load1_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p1_load_idx
-   load1_memreq_queue.io.enq.bits.data := 0.U
-   load1_memreq_queue.io.enq.bits.mem_cmd := M_XRD
-
-   store_addr_memreq_queue.io.enq.bits.addr := histogram.io.mem_p2_addr.bits
-   store_addr_memreq_queue.io.enq.bits.is_load := false.B
-   store_addr_memreq_queue.io.enq.bits.is_sta := true.B
-   store_addr_memreq_queue.io.enq.bits.is_std := false.B
-   store_addr_memreq_queue.io.enq.bits.tag := histogram.io.mem_p2_addr_tag
-   store_addr_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p2_sta_idx
-   store_addr_memreq_queue.io.enq.bits.data := 0.U // does not matter for store address
-   store_addr_memreq_queue.io.enq.bits.mem_cmd := M_XWR
-
-   store_data_memreq_queue.io.enq.bits.addr := 0.U // does not matter for store data
-   store_data_memreq_queue.io.enq.bits.is_load := false.B
-   store_data_memreq_queue.io.enq.bits.is_sta := false.B
-   store_data_memreq_queue.io.enq.bits.is_std := true.B
-   store_data_memreq_queue.io.enq.bits.tag := histogram.io.mem_p2_data_out_tag
-   store_data_memreq_queue.io.enq.bits.lsu_idx := histogram.io.mem_p2_std_idx
-   store_data_memreq_queue.io.enq.bits.data := histogram.io.mem_p2_data_out.bits
-   store_data_memreq_queue.io.enq.bits.mem_cmd := M_XWR
-
-   load0_memreq_queue.io.enq.valid := histogram.io.mem_p0_addr.valid
-   load1_memreq_queue.io.enq.valid := histogram.io.mem_p1_addr.valid
-   store_addr_memreq_queue.io.enq.valid := histogram.io.mem_p2_addr.valid
-   store_data_memreq_queue.io.enq.valid := histogram.io.mem_p2_data_out.valid
-
-   histogram.io.mem_p0_addr.ready := load0_memreq_queue.io.enq.ready
-   histogram.io.mem_p1_addr.ready := load1_memreq_queue.io.enq.ready
-   histogram.io.mem_p2_addr.ready := store_addr_memreq_queue.io.enq.ready
-   histogram.io.mem_p2_data_out.ready := store_data_memreq_queue.io.enq.ready
-
-   histogram.io.mem_p0_data_in.valid := (io.memresp.bits.tag === histogram.io.mem_p0_data_in_tag) & io.memresp.valid
-   histogram.io.mem_p0_data_in.bits := io.memresp.bits.data
-
-   histogram.io.mem_p1_data_in.valid := (io.memresp.bits.tag === histogram.io.mem_p1_data_in_tag) & io.memresp.valid
-   histogram.io.mem_p1_data_in.bits := io.memresp.bits.data
-=======
    memreq_arb.io.in(2).bits := store_memreq_queue.io.deq.bits
    memreq_arb.io.in(2).valid := store_memreq_queue.io.deq.valid && (store_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
    store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
@@ -548,7 +422,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
 
    userModule.io.mem_p1_data_in.valid := (io.memresp.bits.tag === userModule.io.mem_p1_data_in_tag) & io.memresp.valid
    userModule.io.mem_p1_data_in.bits := io.memresp.bits.data
->>>>>>> arya-mat-mul
 
    printf("\n")
    for (i <- 0 to numRegisters - 1) {
@@ -561,11 +434,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            [REG FETCH] fetchReqDone: %d, fetchRespDone: %d, fetch_inst_reg: 0x%x, fetch_valid: %d, fetch_ready: %d,
            rob_valid: %d, rob_data: 0x%x, currentPC: 0x%x, fetch_pc_reg: 0x%x,
            [USER LOGIC] userStart: %d, userDone: %d,
-<<<<<<< HEAD
-           [SIMPLE]histogram.io.start=%d, histogram.io.done=%d,
-=======
            [SIMPLE]userModule.io.start=%d, userModule.io.done=%d,
->>>>>>> arya-mat-mul
            [RETURN] returnIdx=%d, internalReset=%d,
            io.memreq.bits.addr=0x%x, io.memreq.bits.is_load=%d, io.memreq.bits.is_sta=%d, io.memreq.bits.is_std=%d,
            io.memreq.bits.data=0x%x, io.memreq.bits.tag=%d,
@@ -573,18 +442,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memresp.data=0x%x, io.memresp.tag=%d,
            io.memresp.valid=%d,
            io.laq_full=%d, io.stq_full=%d,
-<<<<<<< HEAD
-           io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d
-           memInstrCnt=%d,
-           histogram.io.mem_p0_addr.valid=%d,
-           histogram.io.mem_p1_addr.valid=%d,
-           histogram.io.mem_p2_addr.valid=%d,
-           histogram.io.mem_p0_data_in.valid=%d,
-           histogram.io.mem_p1_data_in.valid=%d,
-           histogram.io.mem_p0_addr_tag=%d, histogram.io.mem_p0_data_in_tag=%d,
-           histogram.io.mem_p1_addr_tag=%d, histogram.io.mem_p1_data_in_tag=%d,
-           histogram.io.mem_p2_addr_tag=%d
-=======
+
            io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d memInstrCnt=%d,
            loopI: %d loopJ: %d loopK: %d
            userModule.io.mem_p0_addr.valid=%d,
@@ -596,7 +454,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            userModule.io.mem_p1_addr_tag=%d, userModule.io.mem_p1_data_in_tag=%d,
            userModule.io.mem_p2_addr_tag=%d
            io.rob_flush=%d, io.rob_empty=%d, rob_flush_start=%d,
->>>>>>> arya-mat-mul
+
            memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d, memreq_arb.io.in(2).valid=%d
            memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d, memreq_arb.io.in(2).ready=%d
            memreq_arb.io.out.valid=%d, memreq_arb.io.out.ready=%d,
@@ -640,11 +498,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      fetchReqDone, fetchRespDone, fetch_inst_reg, io.fetch_valid, io.fetch_ready,
      io.rob_valid, io.rob_data, io.currentPC, fetch_pc_reg,
      userStart, userDone,
-<<<<<<< HEAD
-     histogram.io.start, histogram.io.done,
-=======
      userModule.io.start, userModule.io.done,
->>>>>>> arya-mat-mul
      returnIdx, internalReset,
      io.memreq.bits.addr, io.memreq.bits.is_load, io.memreq.bits.is_sta, io.memreq.bits.is_std,
      io.memreq.bits.data, io.memreq.bits.tag,
@@ -654,16 +508,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      io.laq_full, io.stq_full,
      io.memreq_rob_idx, io.memreq_ldq_idx, io.memreq_stq_idx,
      memInstrCnt,
-<<<<<<< HEAD
-     histogram.io.mem_p0_addr.valid,
-     histogram.io.mem_p1_addr.valid,
-     histogram.io.mem_p2_addr.valid,
-     histogram.io.mem_p0_data_in.valid,
-     histogram.io.mem_p1_data_in.valid,
-     histogram.io.mem_p0_addr_tag, histogram.io.mem_p0_data_in_tag,
-     histogram.io.mem_p1_addr_tag, histogram.io.mem_p1_data_in_tag,
-     histogram.io.mem_p2_addr_tag,
-=======
      loopI, loopJ, loopK,
      userModule.io.mem_p0_addr.valid,
      userModule.io.mem_p1_addr.valid,
@@ -674,7 +518,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      userModule.io.mem_p1_addr_tag, userModule.io.mem_p1_data_in_tag,
      userModule.io.mem_p2_addr_tag,
      io.rob_flush, io.rob_empty, rob_flush_start,
->>>>>>> arya-mat-mul
+
      memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid,
      memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready, memreq_arb.io.in(2).ready,
      memreq_arb.io.out.valid, memreq_arb.io.out.ready,
