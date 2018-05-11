@@ -379,7 +379,9 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.memresp.bits.data := lsu.io.fpga_memresp_data
    fpga.io.memresp.bits.tag := lsu.io.fpga_memresp_tag
 
-   fpga.io.curr_rob_mem_tag := rob.io.enq_uops(0).pc
+   val curr_rob_mem_tag_reg = Reg(init = UInt(0, 32.W))
+   curr_rob_mem_tag_reg := fpga.io.curr_rob_mem_tag
+   fpga.io.curr_rob_mem_tag := Mux(rob.io.enq_valids(0), rob.io.enq_uops(0).pc, curr_rob_mem_tag_reg)
    printf("ROB check current PC: io.get_pc.curr_pc=%d, rob_enq_pc=%d, rob_enq_val=%d\n",
      rob.io.get_pc.curr_pc, rob.io.enq_uops(0).pc, rob.io.enq_valids(0))
 
