@@ -34,11 +34,16 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   })
 
   // For the outer loop.
-  val merge_k = Module(new Merge(2, dataWidth))
+  val i = 0
 
+  val merge_j = Module(new Merge(2, dataWidth))
+  val fifo_j = Module(new FIFO_wrapper(dataWidth, 2))
+  val fifo_j_next = Module(new FIFO_wrapper(dataWidth, 2))
+
+  val merge_k = Module(new Merge(2, dataWidth))
   val fifo_k = Module(new FIFO_wrapper(dataWidth, 2))   // Elastic buffer.
 
-  val join_cond = Module(new Join(2, dataWidth))
+  val join_cond = Module(new Join(3, dataWidth))
   val branch_inner = Module(new Branch(dataWidth))
 
   val eager_fork_body = Module(new Eager_Fork(3, dataWidth))
@@ -54,9 +59,6 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   val fifo_a = Module(new FIFO_wrapper(dataWidth, 2))
   val fifo_b = Module(new FIFO_wrapper(dataWidth, 2))
 
-  val j = 0
-  val i = 0
-
   val join_load_a_b = Module(new Join(2, dataWidth))
 
   val join_end = Module(new Join(2, dataWidth))
@@ -65,10 +67,10 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   // For the middle loop.
   val branch_middle = Module(new Branch(dataWidth))
   val fifo_c_store = Module(new FIFO_wrapper(dataWidth, 2))
-  val eager_fork_middle = Module(new Eager_Fork(2, dataWidth))
+  val eager_fork_middle = Module(new Eager_Fork(3, dataWidth))
+  //val join_middle_cond = Module(new Join(2, dataWidth))
 
   val store_c = Module(new Store(addrWidth, dataWidth, 0, 1, 0, 1))
-  //val store_c = Module(new Store(addrWidth, dataWidth, 2, 3, 0, 1))
 
   // One cycle start signal for the circuit
   val start_reg = Reg(init = Bool(false))
@@ -82,10 +84,10 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   // Datapath and control
   // --------------------------------------------------------------------------
 
+  // Nothing to connect .ready to there ^
   // k input into loop.
   merge_k.io.in(0).bits := 0.U  // k is initially 0.
-  merge_k.io.in(0).valid := start_reg
-  // Nothing to connect .ready to there ^
+  merge_k.io.in(0).valid := merge_j.io.out.valid
   merge_k.io.in(1).bits := fifo_k_next.io.out.bits
   merge_k.io.in(1).valid := eager_fork_end.io.out(0).valid & fifo_k_next.io.out.valid // Hmmm.
   fifo_k_next.io.out.ready := eager_fork_end.io.out(0).valid & merge_k.io.in(1).ready
@@ -94,7 +96,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // c input into loop.
   merge_c.io.in(0).bits := 0.U // c is initially 0.
-  merge_c.io.in(0).valid := start_reg
+  merge_c.io.in(0).valid := merge_j.io.out.valid
   merge_c.io.in(1).bits := fifo_c_next.io.out.bits
   merge_c.io.in(1).valid := eager_fork_end.io.out(1).valid & fifo_c_next.io.out.valid
   // C is consumed by the next loop iteration or by the failing branch condition.
@@ -109,6 +111,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   // join_cond should not signal 'ready' to fifo_k to consume; join_end should.
   // TODO(aryap): if not branching, something should consume fifo_k?
   join_cond.io.in(1).valid := fifo_c.io.out.valid // Wait on fifo_c but don't consume it.
+  join_cond.io.in(2).valid := fifo_j.io.out.valid // Need fifo_j to have a j value too.
 
   branch_inner.io.in.valid := join_cond.io.out.valid
   join_cond.io.out.ready := branch_inner.io.in.ready
@@ -128,7 +131,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // A[j*N + k]
   load_a.io.in <> eager_fork_body.io.out(1)
-  load_a.io.in.bits := io.RegA1 + ((j.U * io.RegA0 + fifo_k.io.out.bits) << 2)
+  load_a.io.in.bits := io.RegA1 + ((fifo_j.io.out.bits * io.RegA0 + fifo_k.io.out.bits) << 2)
   fifo_a.io.in <> load_a.io.out
   // B[k*N + i]
   load_b.io.in <> eager_fork_body.io.out(2)
@@ -160,8 +163,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // The FIFOs are storage; they replace registers.
   //val c = Reg(0.U(dataWidth.W))
-
-  // Load memory connections.
+// Load memory connections.
   io.mem_p0_addr.bits := load_a.io.mem_addr.bits
   load_a.io.mem_data_in.bits := io.mem_p0_data_in.bits
 
@@ -186,7 +188,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   load_b.io.mem_data_in.valid := io.mem_p1_data_in.valid
   io.mem_p1_data_in.ready := load_b.io.mem_data_in.ready
 
-  // In the middle loop, once the inner loop exits, we store c.
+  // In the middle loop, once the inner loop exits, we store c, figure out the
+  // next j, and check if we have to branch again.
 
   eager_fork_middle.io.in.valid := branch_inner.io.out(0).valid
   branch_inner.io.out(0).ready := eager_fork_middle.io.in.ready
@@ -197,15 +200,30 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   fifo_c_store.io.out.ready := store_c.io.in(1).ready & store_c.io.in(1).ready
   store_c.io.in(0).valid := fifo_c_store.io.out.valid
-  store_c.io.in(0).bits := io.RegA3 + ((j.U * io.RegA0 + i.U) << 2)
+  store_c.io.in(0).bits := io.RegA3 + ((fifo_j.io.out.bits * io.RegA0 + i.U) << 2)
   store_c.io.in(1).valid := fifo_c_store.io.out.valid
   store_c.io.in(1).bits := fifo_c_store.io.out.bits
 
+  // Only proceed once the next value of j has been computed
+
   branch_middle.io.in.valid := eager_fork_middle.io.out(1).valid
   eager_fork_middle.io.out(1).ready := branch_middle.io.in.ready
-  branch_middle.io.cond := true.B    // Should depend on j.
+  branch_middle.io.cond := fifo_j.io.out.bits < io.RegA0    // j < N
 
-  // We also increment j.
+  merge_j.io.in(0).bits := 0.U  // j is initially 0.
+  merge_j.io.in(0).valid := /*branch_middle.io.out(0).valid |*/ start_reg // j gets reset by i
+
+  merge_j.io.in(1).bits := fifo_j_next.io.out.bits
+  merge_j.io.in(1).valid := branch_middle.io.out(1).valid & fifo_j_next.io.out.valid
+  fifo_j_next.io.out.ready := branch_middle.io.out(1).valid & merge_j.io.in(1).ready
+
+  fifo_j_next.io.in.bits := fifo_j.io.out.bits + 1.U        // j++
+
+
+  //fifo_j_next.io.in.valid := eager_fork_middle.io.out(2).valid & fifo_j.io.out.valid
+  //fifo_j.io.out.ready := eager_fork_middle.io.out(2).valid & fifo_j_next.io.in.ready
+
+  fifo_j.io.in <> merge_j.io.out
 
   // Store memory connections.
   io.mem_p2_addr.bits := store_c.io.mem_addr.bits
@@ -222,14 +240,15 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // Outer loop.
 
-  printf("""[arya matmul] io.RegAO: 0x%x io.RegA0: 0x%x io.RegA2: 0x%x io.RegA3: 0x%x
+  printf("""[arya matmul] io.RegAO: 0x%x io.RegA1: 0x%x io.RegA2: 0x%x io.RegA3: 0x%x
     merge_k           [in0] v:%d r:%d b:0x%x  [in1]  v:%d r:%d b:0x%x  [out]  v:%d r:%d b:0x%x 
     fifo_k            [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
 
     merge_c           [in0] v:%d r:%d b:0x%x  [in1]  v:%d r:%d b:0x%x  [out]  v:%d r:%d b:0x%x 
     fifo_c            [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
 
-    join_cond         [in0] v:%d r:%d         [in1]  v:%d r:%d         [out]  v:%d r:%d       
+    join_cond         [in0] v:%d r:%d         [in1]  v:%d r:%d         [in2]  v:%d r:%d
+                                                                       [out]  v:%d r:%d       
     branch_inner      [in]  v:%d r:%d c:%d    [out0] v:%d r:%d         [out1] v:%d r:%d       
 
     load_a            [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
@@ -247,6 +266,10 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     branch_middle     [in]  v:%d r:%d c:%d    [out0] v:%d r:%d         [out1] v:%d r:%d       
     fifo_c_store      [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
     store_c           [in0] v:%d r:%d b:0x%x                           [in1]  v:%d r:%d b:0x%x
+    fifo_j_next       [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
+
+    merge_j           [in0] v:%d r:%d b:0x%x  [in1]  v:%d r:%d b:0x%x  [out]  v:%d r:%d b:0x%x 
+    fifo_j            [in]  v:%d r:%d b:0x%x                           [out]  v:%d r:%d b:0x%x
     """,
     io.RegA0, io.RegA1, io.RegA2, io.RegA3,
     merge_k.io.in(0).valid, merge_k.io.in(0).ready, merge_k.io.in(0).bits,
@@ -265,6 +288,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
     join_cond.io.in(0).valid, join_cond.io.in(0).ready,
       join_cond.io.in(1).valid, join_cond.io.in(1).ready,
+      join_cond.io.in(2).valid, join_cond.io.in(2).ready,
       join_cond.io.out.valid, join_cond.io.out.ready,
 
     branch_inner.io.in.valid, branch_inner.io.in.ready, branch_inner.io.cond,
@@ -305,6 +329,16 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
       fifo_c_store.io.out.valid, fifo_c_store.io.out.ready, fifo_c_store.io.out.bits,
 
     store_c.io.in(0).valid, store_c.io.in(0).ready, store_c.io.in(0).bits,
-      store_c.io.in(1).valid, store_c.io.in(1).ready, store_c.io.in(1).bits
+      store_c.io.in(1).valid, store_c.io.in(1).ready, store_c.io.in(1).bits,
+
+    fifo_j_next.io.in.valid, fifo_j_next.io.in.ready, fifo_j_next.io.in.bits,
+      fifo_j_next.io.out.valid, fifo_j_next.io.out.ready, fifo_j_next.io.out.bits,
+
+    merge_j.io.in(0).valid, merge_j.io.in(0).ready, merge_j.io.in(0).bits,
+      merge_j.io.in(1).valid, merge_j.io.in(1).ready, merge_j.io.in(1).bits,
+      merge_j.io.out.valid, merge_j.io.out.ready, merge_j.io.out.bits,
+
+    fifo_j.io.in.valid, fifo_j.io.in.ready, fifo_j.io.in.bits,
+      fifo_j.io.out.valid, fifo_j.io.out.ready, fifo_j.io.out.bits
   )
 }
