@@ -156,7 +156,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   join_end.io.in(0).valid := fifo_c_next.io.out.valid
   join_end.io.in(1).valid := fifo_k_next.io.out.valid
   //fifo_k.io.out.ready := fifo_k_next.io.out.ready & join_end.io.out.valid
-  fifo_k.io.out.ready := fifo_k_next.io.in.ready & eager_fork_body.io.out(0).valid
+  fifo_k.io.out.ready :=
+    (fifo_k_next.io.in.ready & eager_fork_body.io.out(0).valid) | merge_j.io.out.valid
 
   eager_fork_end.io.in.valid := join_end.io.out.valid
   // I don't think this does anything...
@@ -199,7 +200,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   eager_fork_middle.io.out(0).ready := fifo_c_store.io.in.ready
   fifo_c_store.io.in.bits := fifo_c_next.io.out.bits
 
-  fifo_c_store.io.out.ready := store_c.io.in(1).ready & store_c.io.in(1).ready
+  fifo_c_store.io.out.ready := store_c.io.in(1).ready
   store_c.io.in(0).valid := fifo_c_store.io.out.valid
   store_c.io.in(0).bits := io.RegA3 + ((fifo_j.io.out.bits * io.RegA0 + i.U) << 2)
   store_c.io.in(1).valid := fifo_c_store.io.out.valid
@@ -215,11 +216,18 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   merge_j.io.in(0).valid := /*branch_middle.io.out(0).valid |*/ start_reg // j gets reset by i
 
   merge_j.io.in(1).bits := fifo_j_next.io.out.bits
-  merge_j.io.in(1).valid := branch_middle.io.out(1).valid & fifo_j_next.io.out.valid
-  fifo_j_next.io.out.ready := branch_middle.io.out(1).valid & merge_j.io.in(1).ready
+  merge_j.io.in(1).valid := fifo_j_next.io.out.valid
+  fifo_j_next.io.out.ready := merge_j.io.in(1).ready
 
+  // Only want to load once.
+  fifo_j_next.io.in.valid :=
+    branch_middle.io.out(1).valid & fifo_j.io.out.valid & ~fifo_j_next.io.out.valid
   fifo_j_next.io.in.bits := fifo_j.io.out.bits + 1.U        // j++
-
+  // fifo_j should be cleared after all things depending on it have consumed it
+  // - but we don't know when store_c consume it, other than 1 cycle after it
+  // reads it
+  fifo_j.io.out.ready := fifo_c_store.io.out.valid
+  //fifo_j.io.out.ready := branch_middle.io.out(1).valid & fifo_j_next.io.in.ready
 
   //fifo_j_next.io.in.valid := eager_fork_middle.io.out(2).valid & fifo_j.io.out.valid
   //fifo_j.io.out.ready := eager_fork_middle.io.out(2).valid & fifo_j_next.io.in.ready
