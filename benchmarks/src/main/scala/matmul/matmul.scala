@@ -205,6 +205,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   eager_fork_middle.io.out(1).ready := branch_middle.io.in.ready
   branch_middle.io.cond := true.B    // Should depend on j.
 
+  // We also increment j.
+
   // Store memory connections.
   io.mem_p2_addr.bits := store_c.io.mem_addr.bits
   io.mem_p2_data_out.bits := store_c.io.mem_data_out.bits

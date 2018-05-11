@@ -352,6 +352,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
                   fetch_valid_reg := true.B
                }
             } .elsewhen (io.rob_empty && io.fetch_ready) {
+               orig_rob_tail_reg := io.orig_rob_tail
                fetch_mem_inst_reg := true.B
                memInstrCnt := 0.U
                fetch_inst_reg := memInstrs(2.U) // Install the store instruction.
@@ -453,7 +454,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            io.memresp.valid=%d,
            io.laq_full=%d, io.stq_full=%d,
            io.memreq_rob_idx=%d, io.memreq_ldq_idx=%d, io.memreq_stq_idx=%d memInstrCnt=%d,
-           loopI: %d loopJ: %d loopk: %d
+           loopI: %d loopJ: %d loopK: %d
            userModule.io.mem_p0_addr.valid=%d,
            userModule.io.mem_p1_addr.valid=%d,
            userModule.io.mem_p2_addr.valid=%d,
