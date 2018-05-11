@@ -329,40 +329,42 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val loopJ = Reg(init = UInt(0, 32.W))
    val loopK = Reg(init = UInt(0, 32.W))
 
-   when (loopI < registers(0)) {
-      when (loopJ < registers(0)) {
-         when (loopK < registers(0)) {
-            // Keep fetching memory instructions until the kernel finishes
-            when (fetch_mem_inst_start && io.fetch_ready) {
-              fetch_mem_inst_reg := true.B
-              memInstrCnt := memInstrCnt + 1.U
-              fetch_inst_reg := memInstrs(memInstrIdx)
-              fetch_valid_reg := true.B
-              fetch_pc_reg := memInstrCnt
-            }
+   when (fetch_mem_inst_start) {
+      when (loopI < registers(0)) {
+         when (loopJ < registers(0)) {
+            when (loopK < registers(0)) {
+               fetch_inst_reg := memInstrs(memInstrIdx)
+               fetch_mem_inst_reg := true.B
+               fetch_pc_reg := memInstrCnt
 
-            // Only issue the first two loads.
-            when (memInstrIdx === 1.U && io.fetch_ready) {
-              memInstrIdx := 0.U
-              // The memory requests for the inner loop are done.
-              loopK := loopK + 1.U
-            } .elsewhen (fetch_mem_inst_start && io.fetch_ready) {
-              memInstrIdx := memInstrIdx + 1.U
-            }
-
-         } .otherwise {
-            when (fetch_mem_inst_start && io.fetch_ready) {
-              fetch_mem_inst_reg := true.B
-              memInstrCnt := 0.U
-              fetch_inst_reg := memInstrs(2.U) // Install the store instruction.
-              fetch_valid_reg := true.B
-              fetch_pc_reg := 2.U
-              loopK := 0.U
-              loopJ := loopJ + 1.U
+               when (io.fetch_ready && fetch_valid_reg) {
+                  // Only issue the first two loads.
+                  when (memInstrIdx === 1.U) {
+                     memInstrIdx := 0.U
+                     loopK := loopK + 1.U
+                  } .otherwise {
+                     // The memory requests for the inner loop are done.
+                     memInstrIdx := memInstrIdx + 1.U
+                  }
+                  fetch_valid_reg := false.B
+                  memInstrCnt := memInstrCnt + 1.U
+               }.otherwise {
+                  fetch_valid_reg := true.B
+               }
+            } .elsewhen (io.rob_empty && io.fetch_ready) {
+               fetch_mem_inst_reg := true.B
+               memInstrCnt := 0.U
+               fetch_inst_reg := memInstrs(2.U) // Install the store instruction.
+               fetch_valid_reg := true.B
+               fetch_pc_reg := memInstrCnt
+               loopK := 0.U
+               loopJ := loopJ + 1.U
+            } .otherwise {
+               fetch_valid_reg := false.B
             }
          }
+         // The outer loop only goes as far as N; we don't restart the counter.
       }
-      // The outer loop only goes as far as N; we don't restart the counter.
    }
 
    io.fetch_mem_inst := fetch_mem_inst_reg
@@ -373,7 +375,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val store_memreq_queue = Module(new Queue(new FpgaMemReq(), 2))
 
    io.memreq.bits := memreq_arb.io.out.bits
-   io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag < io.curr_rob_mem_tag)
+   io.memreq.valid := memreq_arb.io.out.valid && (memreq_arb.io.out.bits.tag <= io.curr_rob_mem_tag)
    memreq_arb.io.out.ready := true.B
 
    io.memreq_rob_idx := memreq_arb.io.out.bits.tag + orig_rob_tail_reg
@@ -381,16 +383,16 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    io.memreq_stq_idx := memreq_arb.io.out.bits.lsu_idx + orig_stq_tail_reg
 
    memreq_arb.io.in(0).bits := load0_memreq_queue.io.deq.bits
-   memreq_arb.io.in(0).valid := load0_memreq_queue.io.deq.valid && (load0_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   load0_memreq_queue.io.deq.ready := (load0_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(0).valid && memreq_arb.io.in(0).ready
+   memreq_arb.io.in(0).valid := load0_memreq_queue.io.deq.valid && (load0_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   load0_memreq_queue.io.deq.ready := (load0_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(0).valid && memreq_arb.io.in(0).ready
 
    memreq_arb.io.in(1).bits := load1_memreq_queue.io.deq.bits
-   memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
+   memreq_arb.io.in(1).valid := load1_memreq_queue.io.deq.valid && (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   load1_memreq_queue.io.deq.ready := (load1_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(1).valid && memreq_arb.io.in(1).ready
 
    memreq_arb.io.in(2).bits := store_memreq_queue.io.deq.bits
-   memreq_arb.io.in(2).valid := store_memreq_queue.io.deq.valid && (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag)
-   store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag < io.curr_rob_mem_tag) && memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
+   memreq_arb.io.in(2).valid := store_memreq_queue.io.deq.valid && (store_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag)
+   store_memreq_queue.io.deq.ready := (store_memreq_queue.io.deq.bits.tag <= io.curr_rob_mem_tag) && memreq_arb.io.in(2).valid && memreq_arb.io.in(2).ready
 
    load0_memreq_queue.io.enq.bits.addr := userModule.io.mem_p0_addr.bits
    load0_memreq_queue.io.enq.bits.is_load := true.B

@@ -429,6 +429,7 @@ class Rob(width: Int,
             val cidx = GetRowIdx(clr_rob_idx)
             rob_bsy(cidx) := Bool(false)
 
+            printf("cidx: 0x%x rob_val(cidx): %d", cidx, rob_val(cidx))
             assert (rob_val(cidx) === Bool(true), "[rob] store writing back to invalid entry.")
             assert (rob_bsy(cidx) === Bool(true), "[rob] store writing back to a not-busy entry.")
 
