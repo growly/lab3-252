@@ -31,6 +31,7 @@ bmarks = \
   simple \
   histogram \
   vecadd \
+  matmul \
 
 #--------------------------------------------------------------------
 # Build rules
