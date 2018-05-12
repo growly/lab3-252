@@ -28,10 +28,10 @@ bmarks = \
 	dhrystone \
 	lsu_forwarding \
 	lsu_failures \
-  simple \
-  histogram \
-  vecadd \
-  matmul \
+	simple \
+	histogram \
+	vecadd \
+	matmul \
 
 #--------------------------------------------------------------------
 # Build rules

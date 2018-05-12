@@ -152,7 +152,9 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   join_load_a_b.io.out.ready := fifo_c_next.io.in.ready
 
   // Only consume fifo_c when the c_next fifo is ready and join has synced.
-  fifo_c.io.out.ready := fifo_c_next.io.in.ready & join_load_a_b.io.out.valid
+  fifo_c.io.out.ready :=
+      (fifo_c_next.io.in.ready & join_load_a_b.io.out.valid) | 
+      eager_fork_middle.io.out(0).valid // Also clear when fifo_c_store reads this value, on cue from by eager_fork_middle>
   // Do the inner sum.
   fifo_c_next.io.in.bits := fifo_c.io.out.bits + fifo_a.io.out.bits * fifo_b.io.out.bits
 
@@ -211,10 +213,11 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   fifo_c_store.io.in.valid := eager_fork_middle.io.out(0).valid
   eager_fork_middle.io.out(0).ready := fifo_c_store.io.in.ready
-  fifo_c_store.io.in.bits := fifo_c_next.io.out.bits
+  fifo_c_store.io.in.bits := fifo_c.io.out.bits
 
   fifo_c_store.io.out.ready := store_c.io.in(1).ready
   store_c.io.in(0).valid := fifo_c_store.io.out.valid
+  // Store at C[j*N + i], or C(j, i)
   store_c.io.in(0).bits := io.RegA3 + ((fifo_j.io.out.bits * io.RegA0 + fifo_i.io.out.bits) << 2)
   store_c.io.in(1).valid := fifo_c_store.io.out.valid
   store_c.io.in(1).bits := fifo_c_store.io.out.bits
