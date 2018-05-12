@@ -221,29 +221,25 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // Only proceed once the next value of j has been computed
 
-  branch_middle.io.in.valid := eager_fork_middle.io.out(1).valid
-  eager_fork_middle.io.out(1).ready := branch_middle.io.in.ready
-  branch_middle.io.cond := fifo_j.io.out.bits < io.RegA0    // j < N
+  branch_middle.io.in.valid := fifo_j_next.io.out.valid
+  //eager_fork_middle.io.out(1).ready := branch_middle.io.in.ready
+  branch_middle.io.cond := fifo_j_next.io.out.bits < io.RegA0    // j < N
 
   merge_j.io.in(0).bits := 0.U  // j is initially 0.
   merge_j.io.in(0).valid := merge_i.io.out.valid // jets gets reset every time a i is ready
 
   merge_j.io.in(1).bits := fifo_j_next.io.out.bits
-  merge_j.io.in(1).valid := fifo_j_next.io.out.valid
+  merge_j.io.in(1).valid := branch_middle.io.out(1).valid
   fifo_j_next.io.out.ready := merge_j.io.in(1).ready
 
   // Only want to load once.
   fifo_j_next.io.in.valid :=
-    branch_middle.io.out(1).valid & fifo_j.io.out.valid & ~fifo_j_next.io.out.valid
+    eager_fork_middle.io.out(1).valid & fifo_j.io.out.valid & ~fifo_j_next.io.out.valid
   fifo_j_next.io.in.bits := fifo_j.io.out.bits + 1.U        // j++
   // fifo_j should be cleared after all things depending on it have consumed it
   // - but we don't know when store_c consume it, other than 1 cycle after it
   // reads it
   fifo_j.io.out.ready := fifo_c_store.io.out.valid
-  //fifo_j.io.out.ready := branch_middle.io.out(1).valid & fifo_j_next.io.in.ready
-
-  //fifo_j_next.io.in.valid := eager_fork_middle.io.out(2).valid & fifo_j.io.out.valid
-  //fifo_j.io.out.ready := eager_fork_middle.io.out(2).valid & fifo_j_next.io.in.ready
 
   fifo_j.io.in <> merge_j.io.out
 
@@ -270,23 +266,23 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // Only proceed once the next value of j has been computed
 
-  branch_outer.io.in.valid := branch_middle.io.out(0).valid
-  branch_middle.io.out(0).ready := branch_outer.io.in.ready
-  branch_outer.io.cond := fifo_i.io.out.bits < io.RegA0    // i < N
+  branch_outer.io.in.valid := fifo_i_next.io.out.valid
+  //branch_middle.io.out(0).ready := branch_outer.io.in.ready
+  branch_outer.io.cond := fifo_i_next.io.out.bits < io.RegA0    // i < N
 
   merge_i.io.in(0).bits := 0.U  // i is initially 0.
   merge_i.io.in(0).valid := start_reg // i gets reset by the starting gun
 
   merge_i.io.in(1).bits := fifo_i_next.io.out.bits
-  merge_i.io.in(1).valid := fifo_i_next.io.out.valid
+  merge_i.io.in(1).valid := branch_outer.io.out(1).valid
   fifo_i_next.io.out.ready := merge_i.io.in(1).ready
 
-  // Only want to load once.
+  // Only want to load once, as soon as next-most-inner branch (middle) signals end of its block.
   fifo_i_next.io.in.valid :=
-    branch_outer.io.out(1).valid & fifo_i.io.out.valid & ~fifo_i_next.io.out.valid
+    branch_middle.io.out(0).valid & fifo_i.io.out.valid & ~fifo_i_next.io.out.valid
   fifo_i_next.io.in.bits := fifo_i.io.out.bits + 1.U        // i++
-  // Ready old i out once new i should be computed.
-  fifo_i.io.out.ready := branch_outer.io.out(1).valid
+  // Read old i out once new i should be computed.
+  fifo_i.io.out.ready := branch_middle.io.out(0).valid
 
   fifo_i.io.in <> merge_i.io.out
 

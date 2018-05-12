@@ -381,6 +381,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
          }
          // The outer loop only goes as far as N; we don't restart the counter.
       }
+      // Should be done here.
    }
 
    io.fetch_mem_inst := fetch_mem_inst_reg
