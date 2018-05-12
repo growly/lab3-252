@@ -17,6 +17,9 @@ class Load(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
 
     val mem_load_idx    = UInt(OUTPUT, 32)
 
+    val reset_tag_valid = Bool(INPUT)
+    val reset_tag_value = UInt(INPUT, 32)
+
   })
 
   io.in.ready := io.mem_addr.ready //&& io.out.ready
@@ -31,12 +34,18 @@ class Load(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
   val mem_data_in_tag_reg = Reg(init = UInt(initTag, 32))
   val mem_load_idx_reg = Reg(init = UInt(initLoadIdx, 32))
 
-  when (io.mem_addr.valid && io.mem_addr.ready) {
+  when (io.reset_tag_valid) {
+    mem_addr_tag_reg := UInt(initTag) + io.reset_tag_value
+  }
+  .elsewhen (io.mem_addr.valid && io.mem_addr.ready) {
     mem_addr_tag_reg := mem_addr_tag_reg + UInt(strideTag)
     mem_load_idx_reg := mem_load_idx_reg + UInt(strideLoad)
   }
 
-  when (io.mem_data_in.valid && io.mem_data_in.ready) {
+  when (io.reset_tag_valid) {
+    mem_data_in_tag_reg := UInt(initTag) + io.reset_tag_value
+  }
+  .elsewhen (io.mem_data_in.valid && io.mem_data_in.ready) {
     mem_data_in_tag_reg := mem_data_in_tag_reg + UInt(strideTag)
   }
 

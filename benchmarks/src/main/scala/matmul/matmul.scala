@@ -18,12 +18,16 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     val mem_p0_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
     val mem_p0_data_in_tag = UInt(OUTPUT, 32)
     val mem_p0_load_idx = UInt(OUTPUT, 32)
+    val mem_p0_reset_tag_valid = Bool(INPUT)
+    val mem_p0_reset_tag_value = UInt(INPUT, 32)
 
     val mem_p1_addr = new DecoupledIO(UInt(addrWidth.W))
     val mem_p1_addr_tag = UInt(OUTPUT, 32)
     val mem_p1_data_in = new DecoupledIO(UInt(dataWidth.W)).flip()
     val mem_p1_data_in_tag = UInt(OUTPUT, 32)
     val mem_p1_load_idx = UInt(OUTPUT, 32)
+    val mem_p1_reset_tag_valid = Bool(INPUT)
+    val mem_p1_reset_tag_value = UInt(INPUT, 32)
 
     val mem_p2_addr = new DecoupledIO(UInt(addrWidth.W))
     val mem_p2_addr_tag = UInt(OUTPUT, 32)
@@ -31,6 +35,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
     val mem_p2_data_out_tag = UInt(OUTPUT, 32)
     val mem_p2_sta_idx = UInt(OUTPUT, 32)
     val mem_p2_std_idx = UInt(OUTPUT, 32)
+    val mem_p2_reset_tag_valid = Bool(INPUT)
+    val mem_p2_reset_tag_value = UInt(INPUT, 32)
 
   })
 
@@ -172,6 +178,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   io.mem_p0_addr_tag := load_a.io.mem_addr_tag
   io.mem_p0_data_in_tag := load_a.io.mem_data_in_tag
   io.mem_p0_load_idx := load_a.io.mem_load_idx
+  load_a.io.reset_tag_valid := io.mem_p0_reset_tag_valid
+  load_a.io.reset_tag_value := io.mem_p0_reset_tag_value
 
   io.mem_p1_addr.bits := load_b.io.mem_addr.bits
   load_b.io.mem_data_in.bits := io.mem_p1_data_in.bits
@@ -179,6 +187,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   io.mem_p1_addr_tag := load_b.io.mem_addr_tag
   io.mem_p1_data_in_tag := load_b.io.mem_data_in_tag
   io.mem_p1_load_idx := load_b.io.mem_load_idx
+  load_b.io.reset_tag_valid := io.mem_p1_reset_tag_valid
+  load_b.io.reset_tag_value := io.mem_p1_reset_tag_value
 
   io.mem_p0_addr.valid := load_a.io.mem_addr.valid
   load_a.io.mem_addr.ready := io.mem_p0_addr.ready
@@ -242,6 +252,8 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
   io.mem_p2_data_out_tag := store_c.io.mem_data_out_tag
   io.mem_p2_sta_idx := store_c.io.mem_sta_idx
   io.mem_p2_std_idx := store_c.io.mem_std_idx
+  store_c.io.reset_tag_valid := io.mem_p2_reset_tag_valid
+  store_c.io.reset_tag_value := io.mem_p2_reset_tag_value
 
   io.mem_p2_addr.valid := store_c.io.mem_addr.valid
   store_c.io.mem_addr.ready := io.mem_p2_addr.ready

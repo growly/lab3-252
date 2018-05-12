@@ -317,11 +317,31 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val loopJ = Reg(init = UInt(0, 32.W))
    val loopK = Reg(init = UInt(0, 32.W))
 
+   val mem_p0_reset_tag_valid = Reg(init = Bool(false))
+   val mem_p1_reset_tag_valid = Reg(init = Bool(false))
+   val mem_p2_reset_tag_valid = Reg(init = Bool(false))
+   val mem_p0_reset_tag_value = Reg(init = UInt(0, 32))
+   val mem_p1_reset_tag_value = Reg(init = UInt(0, 32))
+   val mem_p2_reset_tag_value = Reg(init = UInt(0, 32))
+
+   when (mem_p0_reset_tag_valid) {
+      mem_p0_reset_tag_valid := false.B
+   }
+
+   when (mem_p1_reset_tag_valid) {
+      mem_p1_reset_tag_valid := false.B
+   }
+
+   when (mem_p2_reset_tag_valid) {
+      mem_p2_reset_tag_valid := false.B
+   }
+
    when (fetch_mem_inst_start) {
       when (loopI < registers(0)) {
          when (loopJ < registers(0)) {
             when (loopK < registers(0)) {
                when (io.fetch_ready) {
+
                   fetch_inst_reg := memInstrs(memInstrIdx)
                   fetch_mem_inst_reg := true.B
                   fetch_pc_reg := memInstrCnt
@@ -338,12 +358,20 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
                   memInstrCnt := memInstrCnt + 1.U
                }
             } .elsewhen (io.rob_empty && io.fetch_ready) {
-               orig_rob_tail_reg := io.orig_rob_tail
+
+               // FIXME: Dirty hack to make it work for now
+               mem_p0_reset_tag_valid := true.B
+               mem_p0_reset_tag_value := memInstrCnt + 1.U
+               mem_p1_reset_tag_valid := true.B
+               mem_p1_reset_tag_value := memInstrCnt + 1.U
+               mem_p2_reset_tag_valid := true.B
+               mem_p2_reset_tag_value := memInstrCnt
                fetch_mem_inst_reg := true.B
-               memInstrCnt := 0.U
+               //memInstrCnt := 0.U
                fetch_inst_reg := memInstrs(2.U) // Install the store instruction.
                fetch_valid_reg := true.B
-               fetch_pc_reg := 0.U//memInstrCnt
+               fetch_pc_reg := memInstrCnt
+               memInstrCnt := memInstrCnt + 1.U
                memInstrIdx := 0.U
                loopK := 0.U
                loopJ := loopJ + 1.U
@@ -442,6 +470,13 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    userModule.io.mem_p1_data_in.valid := (io.memresp.bits.tag === userModule.io.mem_p1_data_in_tag) & io.memresp.valid
    userModule.io.mem_p1_data_in.bits := io.memresp.bits.data
 
+   userModule.io.mem_p0_reset_tag_valid := mem_p0_reset_tag_valid
+   userModule.io.mem_p1_reset_tag_valid := mem_p1_reset_tag_valid
+   userModule.io.mem_p2_reset_tag_valid := mem_p2_reset_tag_valid
+   userModule.io.mem_p0_reset_tag_value := mem_p0_reset_tag_value
+   userModule.io.mem_p1_reset_tag_value := mem_p1_reset_tag_value
+   userModule.io.mem_p2_reset_tag_value := mem_p2_reset_tag_value
+
    printf("\n")
    for (i <- 0 to numRegisters - 1) {
      printf("[FPGA] REGISTER[%d]: ARCH:%d VALUE 0x%x\n", i.U, archRegsRequired(i.U), registers(i.U));
@@ -479,18 +514,22 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            memreq_arb.io.out.valid=%d, memreq_arb.io.out.ready=%d,
 
            load0_memreq_queue.io.enq.bits.tag=%d,
+           load0_memreq_queue.io.enq.bits.lsu_idx=%d,
            load0_memreq_queue.io.enq.valid=%d,
            load0_memreq_queue.io.enq.ready=%d,
 
            load1_memreq_queue.io.enq.bits.tag=%d,
+           load1_memreq_queue.io.enq.bits.lsu_idx=%d,
            load1_memreq_queue.io.enq.valid=%d,
            load1_memreq_queue.io.enq.ready=%d,
 
            store_addr_memreq_queue.io.enq.bits.tag=%d,
+           store_addr_memreq_queue.io.enq.bits.lsu_idx=%d,
            store_addr_memreq_queue.io.enq.valid=%d,
            store_addr_memreq_queue.io.enq.ready=%d,
 
            store_data_memreq_queue.io.enq.bits.tag=%d,
+           store_data_memreq_queue.io.enq.bits.lsu_idx=%d,
            store_data_memreq_queue.io.enq.valid=%d,
            store_data_memreq_queue.io.enq.ready=%d,
 
@@ -509,6 +548,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            store_data_memreq_queue.io.deq.bits.tag=%d,
            store_data_memreq_queue.io.deq.valid=%d,
            store_data_memreq_queue.io.deq.ready=%d,
+
+           mem_p0_reset_tag_valid=%d, mem_p1_reset_tag_valid=%d, mem_p2_reset_tag_valid=%d,
+           mem_p0_reset_tag_value=%d, mem_p1_reset_tag_value=%d, mem_p2_reset_tag_value=%d,
 
            io.curr_rob_mem_tag=%d
      """,
@@ -536,6 +578,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      userModule.io.mem_p0_addr_tag, userModule.io.mem_p0_data_in_tag,
      userModule.io.mem_p1_addr_tag, userModule.io.mem_p1_data_in_tag,
      userModule.io.mem_p2_addr_tag,
+
      io.rob_flush, io.rob_empty, rob_flush_start,
 
      memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid,
@@ -543,18 +586,22 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      memreq_arb.io.out.valid, memreq_arb.io.out.ready,
 
      load0_memreq_queue.io.enq.bits.tag,
+     load0_memreq_queue.io.enq.bits.lsu_idx,
      load0_memreq_queue.io.enq.valid,
      load0_memreq_queue.io.enq.ready,
 
      load1_memreq_queue.io.enq.bits.tag,
+     load1_memreq_queue.io.enq.bits.lsu_idx,
      load1_memreq_queue.io.enq.valid,
      load1_memreq_queue.io.enq.ready,
 
      store_addr_memreq_queue.io.enq.bits.tag,
+     store_addr_memreq_queue.io.enq.bits.lsu_idx,
      store_addr_memreq_queue.io.enq.valid,
      store_addr_memreq_queue.io.enq.ready,
 
      store_data_memreq_queue.io.enq.bits.tag,
+     store_data_memreq_queue.io.enq.bits.lsu_idx,
      store_data_memreq_queue.io.enq.valid,
      store_data_memreq_queue.io.enq.ready,
 
@@ -573,6 +620,9 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      store_data_memreq_queue.io.deq.bits.tag,
      store_data_memreq_queue.io.deq.valid,
      store_data_memreq_queue.io.deq.ready,
+
+     mem_p0_reset_tag_valid, mem_p1_reset_tag_valid, mem_p2_reset_tag_valid,
+     mem_p0_reset_tag_value, mem_p1_reset_tag_value, mem_p2_reset_tag_value,
 
      io.curr_rob_mem_tag
    )

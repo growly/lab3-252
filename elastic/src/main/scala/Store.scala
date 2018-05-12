@@ -16,6 +16,9 @@ class Store(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
     val mem_sta_idx    = UInt(OUTPUT, 32)
     val mem_std_idx    = UInt(OUTPUT, 32)
 
+    val reset_tag_valid = Bool(INPUT)
+    val reset_tag_value = UInt(INPUT, 32)
+
   })
 
   io.in(0).ready := io.mem_addr.ready
@@ -31,12 +34,18 @@ class Store(addrWidth: Int, dataWidth: Int, initTag: Int, strideTag: Int,
   val mem_sta_idx_reg = Reg(init = UInt(initStoreIdx, 32))
   val mem_std_idx_reg = Reg(init = UInt(initStoreIdx, 32))
 
-  when (io.mem_addr.valid && io.mem_addr.ready) {
+  when (io.reset_tag_valid) {
+    mem_addr_tag_reg := UInt(initTag) + io.reset_tag_value
+  }
+  .elsewhen (io.mem_addr.valid && io.mem_addr.ready) {
     mem_addr_tag_reg := mem_addr_tag_reg + UInt(strideTag)
     mem_sta_idx_reg := mem_sta_idx_reg + UInt(strideStore)
   }
 
-  when (io.mem_data_out.valid && io.mem_data_out.ready) {
+  when (io.reset_tag_valid) {
+    mem_data_out_tag_reg := UInt(initTag) + io.reset_tag_value
+  }
+  .elsewhen (io.mem_data_out.valid && io.mem_data_out.ready) {
     mem_data_out_tag_reg := mem_data_out_tag_reg + UInt(strideTag)
     mem_std_idx_reg := mem_std_idx_reg + UInt(strideStore)
   }
