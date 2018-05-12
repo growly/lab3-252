@@ -259,27 +259,12 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    userModule.io.RegA2 := registers(2)
    userModule.io.RegA3 := registers(3)
 
-   val rob_flush_start = Reg(init = Bool(false))
-   val rob_flush_start_delayed = Reg(init = Bool(false))
-
-   rob_flush_start_delayed := rob_flush_start
-
-   // TODO: should use the done signal from the kernel here ... Have to figure
-   // out when is safe to set the done signal (e.g. wait until all outstanding
-   // memory transactions complete)
-   // For now simply waiting for 100 cycles before flushing ROB
-   val doneCnt = Reg(init = UInt(0, 32))
-   val doneValid = Reg(init = Bool(false))
-   when (doneCnt === 100.U && !doneValid) {
-     doneCnt := 0.U
-     doneValid := true.B
-     rob_flush_start := true.B
-   }
-   .elsewhen (userModule.io.done && !doneValid) {
-     doneCnt := doneCnt + 1.U
+   val userModule_done_reg = Reg(init = Bool(false))
+   when (userModule.io.done) {
+      userModule_done_reg := true.B
    }
 
-   when (io.rob_empty && userModule.io.done) {
+   when (io.rob_empty && userModule_done_reg) {
      fetch_mem_inst_reg  := false.B
      fetch_mem_inst_start := false.B
      userDone := true.B
@@ -379,7 +364,15 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
                fetch_valid_reg := false.B
             }
          }
+         .elsewhen (io.fetch_ready) {
+            loopJ := 0.U
+            loopI := loopI + 1.U
+            fetch_valid_reg := false.B
+         }
          // The outer loop only goes as far as N; we don't restart the counter.
+      }
+      .elsewhen (io.fetch_ready) {
+         fetch_valid_reg := false.B
       }
       // Should be done here.
    }
@@ -508,7 +501,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
            userModule.io.mem_p0_addr_tag=%d, userModule.io.mem_p0_data_in_tag=%d,
            userModule.io.mem_p1_addr_tag=%d, userModule.io.mem_p1_data_in_tag=%d,
            userModule.io.mem_p2_addr_tag=%d
-           io.rob_flush=%d, io.rob_empty=%d, rob_flush_start=%d,
 
            memreq_arb.io.in(0).valid=%d, memreq_arb.io.in(1).valid=%d, memreq_arb.io.in(2).valid=%d
            memreq_arb.io.in(0).ready=%d, memreq_arb.io.in(1).ready=%d, memreq_arb.io.in(2).ready=%d
@@ -579,8 +571,6 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
      userModule.io.mem_p0_addr_tag, userModule.io.mem_p0_data_in_tag,
      userModule.io.mem_p1_addr_tag, userModule.io.mem_p1_data_in_tag,
      userModule.io.mem_p2_addr_tag,
-
-     io.rob_flush, io.rob_empty, rob_flush_start,
 
      memreq_arb.io.in(0).valid, memreq_arb.io.in(1).valid, memreq_arb.io.in(2).valid,
      memreq_arb.io.in(0).ready, memreq_arb.io.in(1).ready, memreq_arb.io.in(2).ready,

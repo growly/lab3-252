@@ -261,7 +261,7 @@ class matmul(addrWidth: Int = 32, dataWidth: Int = 32) extends Module {
 
   // Outer loop.
 
-  io.done := branch_middle.io.out(0).valid
+  io.done := branch_outer.io.out(0).valid
   // branch_middle.io.out(0).ready :=
 
   // Only proceed once the next value of j has been computed
