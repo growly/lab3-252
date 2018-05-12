@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stddef.h>
+#include "util.h"
 
 // This should typedef data_t for us.
 #include "dataset.h"
@@ -31,7 +32,7 @@ void matrix_multiply(
 }
 
 
-int verify(const size_t n, const data_t expected[], const data_t actual[]) {
+int my_verify(const size_t n, const data_t expected[], const data_t actual[]) {
   size_t i;
   for (i = 0; i < n; ++i)
     if (expected[i] != actual[i])
@@ -44,10 +45,12 @@ int main(int argc, char **argv) {
 
    // stats();
 
-   matrix_multiply(
+	setStats(1);
+  matrix_multiply(
        DIM_SIZE, input_a, input_b, results_data);
+	setStats(0);
 
-   int res = verify(ARRAY_SIZE, input_verify, results_data);
+	int res = my_verify(ARRAY_SIZE, input_verify, results_data);
 
-   exit(res);
+  exit(res);
 }
