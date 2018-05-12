@@ -170,7 +170,7 @@ class FpgaInterface() (implicit p: Parameters) extends BoomModule()(p)
    val memreq_stq_idx_reg = Reg(init = UInt(0, 2))
 
    // This is for pho-mult-add.riscv
-   when (io.currentPC(15, 0) === UInt(0x1cb8)) {
+   when (io.currentPC(15, 0) === UInt(0x1b94)) {
      printf("FOUND TARGET!\n")
      runnable_reg := true.B
      // TODO(aryap): Constant?
