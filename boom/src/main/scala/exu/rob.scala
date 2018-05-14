@@ -429,7 +429,6 @@ class Rob(width: Int,
             val cidx = GetRowIdx(clr_rob_idx)
             rob_bsy(cidx) := Bool(false)
 
-            printf("cidx: 0x%x rob_val(cidx): %d", cidx, rob_val(cidx))
             assert (rob_val(cidx) === Bool(true), "[rob] store writing back to invalid entry.")
             assert (rob_bsy(cidx) === Bool(true), "[rob] store writing back to a not-busy entry.")
 
@@ -481,7 +480,6 @@ class Rob(width: Int,
 
       // can this instruction commit? (the check for exceptions/rob_state happens later)
       can_commit(w) := rob_val(rob_head) && !(rob_bsy(rob_head)) && !io.csr_stall
-
       val com_idx = Wire(UInt())
       com_idx := rob_head
       when (rob_state === s_rollback)
@@ -827,8 +825,6 @@ class Rob(width: Int,
 
 
    io.ready := (rob_state === s_normal) && !full
-
-   printf("ROB state: %d, rob_flush: %d exception_thrown %d\n", rob_state, io.fpga_rob_flush, exception_thrown)
 
    //-----------------------------------------------
    //-----------------------------------------------

@@ -138,6 +138,11 @@ class LoadStoreUnitIO(pl_width: Int)(implicit p: Parameters) extends BoomBundle(
    val fpga_memresp_valid = Bool(OUTPUT)
    val fpga_memresp_data = UInt(OUTPUT, xLen)
    val fpga_memresp_tag = UInt(OUTPUT, 32)
+
+   val fpga_sdq_data = UInt(INPUT, xLen)
+   val fpga_sdq_idx = UInt(INPUT, MEM_ADDR_SZ)
+   val fpga_sdq_valid = Bool(INPUT)
+
    override def cloneType: this.type = new LoadStoreUnitIO(pl_width)(p).asInstanceOf[this.type]
 }
 
@@ -314,7 +319,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    val lcam_avail= Wire(init = Bool(true))
 
    // give first priority to incoming uops
-   when (io.exe_resp.valid)
+   when (io.exe_resp.valid || io.fpga_sdq_valid)
    {
       when (io.exe_resp.bits.sfence.valid)
       {
@@ -337,7 +342,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
          rob_avail  := Bool(false)
          lcam_avail := Bool(false)
       }
-      when (io.exe_resp.bits.uop.ctrl.is_std)
+      when (io.exe_resp.bits.uop.ctrl.is_std || io.fpga_sdq_valid)
       {
          will_fire_std_incoming := Bool(true)
          rob_avail := Bool(false)
@@ -590,12 +595,20 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    // use two ports on STD to handle Integer and FP store data.
    when (will_fire_std_incoming)
    {
-      val sidx = io.exe_resp.bits.uop.stq_idx
-      sdq_val (sidx) := Bool(true)
-      sdq_data(sidx) := io.exe_resp.bits.data.asUInt
-
-      assertNever(will_fire_std_incoming && sdq_val(sidx),
+      when (io.fpga_sdq_valid) {
+        val sidx = io.fpga_sdq_idx
+        sdq_val (sidx) := Bool(true)
+        sdq_data(sidx) := io.fpga_sdq_data
+        assertNever(will_fire_std_incoming && sdq_val(sidx),
          "[lsu] incoming store is overwriting a valid data entry.")
+      }
+      .otherwise {
+        val sidx = io.exe_resp.bits.uop.stq_idx
+        sdq_val (sidx) := Bool(true)
+        sdq_data(sidx) := io.exe_resp.bits.data.asUInt
+        assertNever(will_fire_std_incoming && sdq_val(sidx),
+         "[lsu] incoming store is overwriting a valid data entry.")
+      }
    }
 
    //--------------------------------------------
@@ -664,7 +677,22 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
    clr_bsy_robidx := mem_tlb_uop.rob_idx
    clr_bsy_brmask := GetNewBrMask(io.brinfo, mem_tlb_uop)
 
-   when (mem_fired_sta && !mem_tlb_miss && mem_fired_stdi)
+   val fpga_sdq_data_reg = Reg(init = UInt(0, xLen))
+   val fpga_sdq_idx_reg = Reg(init = UInt(0, MEM_ADDR_SZ))
+   val fpga_sdq_valid_reg = Reg(init = Bool(false))
+
+   fpga_sdq_valid_reg := io.fpga_sdq_valid
+   when (io.fpga_sdq_valid) {
+     fpga_sdq_data_reg := io.fpga_sdq_data
+     fpga_sdq_idx_reg := io.fpga_sdq_idx
+   }
+
+   when (fpga_sdq_valid_reg  && saq_val(fpga_sdq_idx_reg))
+   {
+      clr_bsy_valid := true.B
+      clr_bsy_robidx := stq_uop(fpga_sdq_idx_reg).rob_idx
+   }
+   .elsewhen (mem_fired_sta && !mem_tlb_miss && mem_fired_stdi)
    {
       clr_bsy_valid := !mem_tlb_uop.is_amo && !IsKilledByBranch(io.brinfo, mem_tlb_uop) &&
                        !io.exception && !RegNext(io.exception)
@@ -1373,7 +1401,7 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
             , Mux(stq_commit_head === UInt(i), Str("C"), Str(" "))
             , Mux(stq_tail=== UInt(i), Str("T"), Str(" "))
          )
-      }}
+      }
 
    printf("\n")
    printf("""LSU io.memresp.valid=%d io.memresp.bits.is_load=%d,
@@ -1426,6 +1454,9 @@ class LoadStoreUnit(pl_width: Int)(implicit p: Parameters, edge: freechips.rocke
      failed_loads.reduce(_|_), mem_xcpt_valid
    )
    printf("\n")
+
+	}
+
 
 }
 

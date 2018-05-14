@@ -350,6 +350,10 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    fpga.io.laq_full := lsu.io.laq_full
    fpga.io.stq_full := lsu.io.stq_full
 
+   lsu.io.fpga_sdq_data := fpga.io.sdq_data
+   lsu.io.fpga_sdq_idx := fpga.io.sdq_idx
+   lsu.io.fpga_sdq_valid := fpga.io.sdq_valid && fpga.io.runnable
+
    exe_units.memory_unit.io.fpga_memreq_valid := fpga.io.memreq.valid
 
    exe_units.memory_unit.io.fpga_memreq_tag := fpga.io.memreq.bits.tag
@@ -360,13 +364,12 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_load := fpga.io.memreq.bits.is_load
 
    //exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
-   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_sta ||
-                                                          fpga.io.memreq.bits.is_std
+   exe_units.memory_unit.io.fpga_exe_resp.uop.is_store := fpga.io.memreq.bits.is_store
 
    // TAN: for now, is_sta and is_std are set to HIGH at the same time
    // TODO: would it make sense to separate them, for performance reason?
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_sta
-   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := fpga.io.memreq.bits.is_std
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_sta := fpga.io.memreq.bits.is_store
+   exe_units.memory_unit.io.fpga_exe_resp.uop.ctrl.is_std := false.B
 
    exe_units.memory_unit.io.fpga_exe_resp.data := fpga.io.memreq.bits.data
 
@@ -382,8 +385,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    val curr_rob_mem_tag_reg = Reg(init = UInt(0, 32.W))
    curr_rob_mem_tag_reg := fpga.io.curr_rob_mem_tag
    fpga.io.curr_rob_mem_tag := Mux(rob.io.enq_valids(0), rob.io.enq_uops(0).pc, curr_rob_mem_tag_reg)
-   printf("ROB check current PC: io.get_pc.curr_pc=%d, rob_enq_pc=%d, rob_enq_val=%d\n",
-     rob.io.get_pc.curr_pc, rob.io.enq_uops(0).pc, rob.io.enq_valids(0))
 
    //-------------------------------------------------------------
    //-------------------------------------------------------------
@@ -482,8 +483,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
                         )) ||
                      dec_last_inst_was_stalled
 
-      printf("[DECODER] width %d stall_me %d\n", UInt(w), stall_me)
-
       // stall the next instruction following me in the decode bundle?
       dec_last_inst_was_stalled = stall_me
       dec_stall_next_inst  = stall_me || (dec_valids(w) && dec_uops(w).is_unique)
@@ -547,10 +546,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    // the load/store request in the Decode stage
    exe_units.memory_unit.io.fpga_ldq_idx := fpga.io.memreq_ldq_idx
    exe_units.memory_unit.io.fpga_stq_idx := fpga.io.memreq_stq_idx
-
-   printf("fpga_ldq_idx=%d, fpga_stq_idx=%d\n",
-     fpga.io.memreq_ldq_idx,
-     fpga.io.memreq_stq_idx)
 
    //-------------------------------------------------------------
    // Rob Allocation Logic
@@ -847,20 +842,7 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
 
    }
 
-   printf("*** TEST REGISTERFILE READ ***\n")
-   for (w <- 0 until exe_units.length) {
-     printf("issue %d data 0x%x 0x%x\n", UInt(w),
-       iregister_read.io.exe_reqs(w).bits.rs1_data,
-       iregister_read.io.exe_reqs(w).bits.rs2_data)
-   }
-
-   for (p <- 0 until exe_units.num_rf_read_ports) {
-     printf("iregister_read port %d address %d, data 0x%x\n",
-       UInt(p), iregister_read.io.rf_read_ports(p).addr,
-       iregister_read.io.rf_read_ports(p).data)
-   }
    require (idx == exe_units.num_total_bypass_ports)
-
 
    // don't send IntToFP moves to integer execution units.
    when (iregister_read.io.exe_reqs(ifpu_idx).bits.uop.fu_code === FUConstants.FU_I2F) {
@@ -1006,9 +988,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
    ll_wbarb.io.in(0).valid := mem_resp.valid && (fpga.io.fetch_mem_inst || (mem_resp.bits.uop.ctrl.rf_wen && mem_resp.bits.uop.dst_rtype === RT_FIX))
    ll_wbarb.io.in(0).bits  := mem_resp.bits
 
-   printf("AAABBB mem_resp.rob_idx: %d, fpga_fetch_mem_inst: %d, ll_wbarb_in_valid: %d\n",
-     mem_resp.bits.uop.rob_idx, fpga.io.fetch_mem_inst, ll_wbarb.io.in(0).valid)
-
    assert (ll_wbarb.io.in(0).ready) // never backpressure the memory unit.
    ll_wbarb.io.in(1) <> fp_pipeline.io.toint
    iregfile.io.write_ports(llidx) <> WritePort(ll_wbarb.io.out, IPREG_SZ, xLen)
@@ -1053,8 +1032,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             // for commit logging... (only integer writes come through here)
             rob.io.debug_wb_valids(cnt) := ll_wbarb.io.out.valid && (fpga.io.fetch_mem_inst || (ll_uop.ctrl.rf_wen && ll_uop.dst_rtype === RT_FIX))
             data = ll_wbarb.io.out.bits.data
-            printf("%d %d mem committed valid %d, data 0x%x, ll_warb_out_valid=%d\n", UInt(j), UInt(cnt),
-              rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data, ll_wbarb.io.out.valid)
          }
          else
          {
@@ -1064,8 +1041,6 @@ class BoomCore(implicit p: Parameters, edge: freechips.rocketchip.tilelink.TLEdg
             // for commit logging... (only integer writes come through here)
             rob.io.debug_wb_valids(cnt) := resp.valid && wb_uop.ctrl.rf_wen && wb_uop.dst_rtype === RT_FIX
             data = resp.bits.data
-            printf("%d %d integer committed valid %d, data 0x%x\n", UInt(j), UInt(cnt),
-              rob.io.wb_resps(cnt).valid, rob.io.wb_resps(cnt).bits.data)
          }
 
          if (eu.hasFFlags || (eu.is_mem_unit && usingFPU))

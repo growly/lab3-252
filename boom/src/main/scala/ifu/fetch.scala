@@ -621,6 +621,9 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
    // **** Printfs ****
    //-------------------------------------------------------------
 
+
+   if (DEBUG_PRINTF)
+   {
    printf("\n")
    printf("""[FETCH] io.stalled=%d, io.fetch_from_fpga_pc=0x%x, io.fetch_from_fpga_inst=0x%x,
      io.fetch_from_fpga_valid=%d,
@@ -630,8 +633,6 @@ class FetchUnit(fetch_width: Int)(implicit p: Parameters) extends BoomModule()(p
      io.fetch_from_fpga_ready)
    printf("\n")
 
-   if (DEBUG_PRINTF)
-   {
       // Fetch Stage 1
       printf("BrPred1:    (IF1_PC= 0x%x Predict:n/a) ------ PC: [%c%c-%c for br_id:(n/a), %c %c next: 0x%x ifst:%d]\n"
          , io.imem.npc
